@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Verification script for extracted infrastructure modules.
-This tests the new infra/ and schemas/ modules without importing the old Flask code.
+This tests the infra/ and schemas/ modules can be imported independently.
 """
 from __future__ import annotations
 

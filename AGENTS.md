@@ -128,10 +128,10 @@ import os
 import sys
 from typing import Any, Dict, List
 
-from flask import Flask, jsonify, request
+from fastapi import APIRouter, Depends, Request
 
-from .config import BASE_INSTRUCTIONS
-from .utils import eprint
+from chatmock.core.settings import Settings
+from chatmock.core.logging import log_json
 ```
 
 ### Type Hints
@@ -226,7 +226,7 @@ async def chat_completions(
 
 ### FastAPI Patterns
 
-- Use APIRouter for route grouping (replaces Flask Blueprints)
+- Use APIRouter for route grouping
 - App config via `Settings` class with pydantic-settings
 - CORS handled via `CORSMiddleware` at app level
 - Dependency injection via `Depends()` for settings and HTTP client
