@@ -348,12 +348,14 @@ async def process_responses_api(
     }
 
     try:
-        upstream = await http_client.post(
+        req = http_client.build_request(
+            "POST",
             CHATGPT_RESPONSES_URL,
             headers=headers,
             json=upstream_payload,
             timeout=600.0,
         )
+        upstream = await http_client.send(req, stream=True)
     except httpx.RequestError as exc:
         raise ChatCompletionError(
             f"Upstream ChatGPT request failed: {exc}",
@@ -362,6 +364,7 @@ async def process_responses_api(
 
     if upstream.status_code >= 400:
         try:
+            await upstream.aread()
             err_body = upstream.json() if upstream.content else {"raw": upstream.text}
         except Exception:
             err_body = {"raw": upstream.text}
