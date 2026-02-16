@@ -8,16 +8,17 @@ class Chatmock < Formula
   license "MIT"
   head "https://github.com/RayBytes/ChatMock.git", branch: "main"
 
-  depends_on "python@3.11"
+  depends_on "python@3.13"
 
   def install
-    virtualenv_create(libexec, "python3.11")
+    virtualenv_create(libexec, "python3.13")
 
-    system libexec/"bin/pip", "install", "-r", "requirements.txt"
+    system libexec/"bin/pip", "install", buildpath
 
     libexec.install "chatmock/"
     libexec.install "chatmock.py"
     libexec.install "prompt.md"
+    libexec.install "prompt_gpt5_codex.md"
 
     (bin/"chatmock").write <<~EOS
       #!/bin/bash
