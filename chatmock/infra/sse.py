@@ -1,380 +1,26 @@
 from __future__ import annotations
 
-import base64
-import datetime
-import hashlib
 import json
-import os
-import secrets
-import sys
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, AsyncGenerator, Dict
 
-import requests
-
-from .config import CLIENT_ID_DEFAULT, OAUTH_TOKEN_URL
+import httpx
 
 
-def eprint(*args, **kwargs) -> None:
-    print(*args, file=sys.stderr, **kwargs)
-
-
-def get_home_dir() -> str:
-    home = os.getenv("CHATGPT_LOCAL_HOME") or os.getenv("CODEX_HOME")
-    if not home:
-        home = os.path.expanduser("~/.chatgpt-local")
-    return home
-
-
-def read_auth_file() -> Dict[str, Any] | None:
-    for base in [
-        os.getenv("CHATGPT_LOCAL_HOME"),
-        os.getenv("CODEX_HOME"),
-        os.path.expanduser("~/.chatgpt-local"),
-        os.path.expanduser("~/.codex"),
-    ]:
-        if not base:
-            continue
-        path = os.path.join(base, "auth.json")
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except FileNotFoundError:
-            continue
-        except Exception:
-            continue
-    return None
-
-
-def write_auth_file(auth: Dict[str, Any]) -> bool:
-    home = get_home_dir()
+def _extract_usage(evt: Dict[str, Any]) -> Dict[str, int] | None:
+    """Extract usage statistics from upstream event."""
     try:
-        os.makedirs(home, exist_ok=True)
-    except Exception as exc:
-        eprint(f"ERROR: unable to create auth home directory {home}: {exc}")
-        return False
-    path = os.path.join(home, "auth.json")
-    try:
-        with open(path, "w", encoding="utf-8") as fp:
-            if hasattr(os, "fchmod"):
-                os.fchmod(fp.fileno(), 0o600)
-            json.dump(auth, fp, indent=2)
-        return True
-    except Exception as exc:
-        eprint(f"ERROR: unable to write auth file: {exc}")
-        return False
-
-
-def parse_jwt_claims(token: str) -> Dict[str, Any] | None:
-    if not token or token.count(".") != 2:
-        return None
-    try:
-        _, payload, _ = token.split(".")
-        padded = payload + "=" * (-len(payload) % 4)
-        data = base64.urlsafe_b64decode(padded.encode())
-        return json.loads(data.decode())
+        usage = (evt.get("response") or {}).get("usage")
+        if not isinstance(usage, dict):
+            return None
+        pt = int(usage.get("input_tokens") or 0)
+        ct = int(usage.get("output_tokens") or 0)
+        tt = int(usage.get("total_tokens") or (pt + ct))
+        return {"prompt_tokens": pt, "completion_tokens": ct, "total_tokens": tt}
     except Exception:
         return None
 
 
-def generate_pkce() -> "PkceCodes":
-    from .models import PkceCodes
-
-    code_verifier = secrets.token_hex(64)
-    digest = hashlib.sha256(code_verifier.encode()).digest()
-    code_challenge = base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
-    return PkceCodes(code_verifier=code_verifier, code_challenge=code_challenge)
-
-
-def convert_chat_messages_to_responses_input(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    def _normalize_image_data_url(url: str) -> str:
-        try:
-            if not isinstance(url, str):
-                return url
-            if not url.startswith("data:image/"):
-                return url
-            if ";base64," not in url:
-                return url
-            header, data = url.split(",", 1)
-            try:
-                from urllib.parse import unquote
-
-                data = unquote(data)
-            except Exception:
-                pass
-            data = data.strip().replace("\n", "").replace("\r", "")
-            data = data.replace("-", "+").replace("_", "/")
-            pad = (-len(data)) % 4
-            if pad:
-                data = data + ("=" * pad)
-            try:
-                base64.b64decode(data, validate=True)
-            except Exception:
-                return url
-            return f"{header},{data}"
-        except Exception:
-            return url
-
-    input_items: List[Dict[str, Any]] = []
-    for message in messages:
-        role = message.get("role")
-        if role == "system":
-            continue
-
-        if role == "tool":
-            call_id = message.get("tool_call_id") or message.get("id")
-            if isinstance(call_id, str) and call_id:
-                content = message.get("content", "")
-                if isinstance(content, list):
-                    texts = []
-                    for part in content:
-                        if isinstance(part, dict):
-                            t = part.get("text") or part.get("content")
-                            if isinstance(t, str) and t:
-                                texts.append(t)
-                    content = "\n".join(texts)
-                if isinstance(content, str):
-                    input_items.append(
-                        {
-                            "type": "function_call_output",
-                            "call_id": call_id,
-                            "output": content,
-                        }
-                    )
-            continue
-        if role == "assistant" and isinstance(message.get("tool_calls"), list):
-            for tc in message.get("tool_calls") or []:
-                if not isinstance(tc, dict):
-                    continue
-                tc_type = tc.get("type", "function")
-                if tc_type != "function":
-                    continue
-                call_id = tc.get("id") or tc.get("call_id")
-                fn = tc.get("function") if isinstance(tc.get("function"), dict) else {}
-                name = fn.get("name") if isinstance(fn, dict) else None
-                args = fn.get("arguments") if isinstance(fn, dict) else None
-                if isinstance(call_id, str) and isinstance(name, str) and isinstance(args, str):
-                    input_items.append(
-                        {
-                            "type": "function_call",
-                            "name": name,
-                            "arguments": args,
-                            "call_id": call_id,
-                        }
-                    )
-
-        content = message.get("content", "")
-        content_items: List[Dict[str, Any]] = []
-        if isinstance(content, list):
-            for part in content:
-                if not isinstance(part, dict):
-                    continue
-                ptype = part.get("type")
-                if ptype == "text":
-                    text = part.get("text") or part.get("content") or ""
-                    if isinstance(text, str) and text:
-                        kind = "output_text" if role == "assistant" else "input_text"
-                        content_items.append({"type": kind, "text": text})
-                elif ptype == "image_url":
-                    image = part.get("image_url")
-                    url = image.get("url") if isinstance(image, dict) else image
-                    if isinstance(url, str) and url:
-                        content_items.append({"type": "input_image", "image_url": _normalize_image_data_url(url)})
-        elif isinstance(content, str) and content:
-            kind = "output_text" if role == "assistant" else "input_text"
-            content_items.append({"type": kind, "text": content})
-
-        if not content_items:
-            continue
-        role_out = "assistant" if role == "assistant" else "user"
-        input_items.append({"type": "message", "role": role_out, "content": content_items})
-    return input_items
-
-
-def convert_tools_chat_to_responses(tools: Any) -> List[Dict[str, Any]]:
-    out: List[Dict[str, Any]] = []
-    if not isinstance(tools, list):
-        return out
-    for t in tools:
-        if not isinstance(t, dict):
-            continue
-        if t.get("type") != "function":
-            continue
-        fn = t.get("function") if isinstance(t.get("function"), dict) else {}
-        name = fn.get("name") if isinstance(fn, dict) else None
-        if not isinstance(name, str) or not name:
-            continue
-        desc = fn.get("description") if isinstance(fn, dict) else None
-        params = fn.get("parameters") if isinstance(fn, dict) else None
-        if not isinstance(params, dict):
-            params = {"type": "object", "properties": {}}
-        out.append(
-            {
-                "type": "function",
-                "name": name,
-                "description": desc or "",
-                "strict": False,
-                "parameters": params,
-            }
-        )
-    return out
-
-
-def load_chatgpt_tokens(ensure_fresh: bool = True) -> tuple[str | None, str | None, str | None]:
-    auth = read_auth_file()
-    if not isinstance(auth, dict):
-        return None, None, None
-
-    tokens = auth.get("tokens") if isinstance(auth.get("tokens"), dict) else {}
-    access_token: Optional[str] = tokens.get("access_token")
-    account_id: Optional[str] = tokens.get("account_id")
-    id_token: Optional[str] = tokens.get("id_token")
-    refresh_token: Optional[str] = tokens.get("refresh_token")
-    last_refresh = auth.get("last_refresh")
-
-    if ensure_fresh and isinstance(refresh_token, str) and refresh_token and CLIENT_ID_DEFAULT:
-        needs_refresh = _should_refresh_access_token(access_token, last_refresh)
-        if needs_refresh or not (isinstance(access_token, str) and access_token):
-            refreshed = _refresh_chatgpt_tokens(refresh_token, CLIENT_ID_DEFAULT)
-            if refreshed:
-                access_token = refreshed.get("access_token") or access_token
-                id_token = refreshed.get("id_token") or id_token
-                refresh_token = refreshed.get("refresh_token") or refresh_token
-                account_id = refreshed.get("account_id") or account_id
-
-                updated_tokens = dict(tokens)
-                if isinstance(access_token, str) and access_token:
-                    updated_tokens["access_token"] = access_token
-                if isinstance(id_token, str) and id_token:
-                    updated_tokens["id_token"] = id_token
-                if isinstance(refresh_token, str) and refresh_token:
-                    updated_tokens["refresh_token"] = refresh_token
-                if isinstance(account_id, str) and account_id:
-                    updated_tokens["account_id"] = account_id
-
-                persisted = _persist_refreshed_auth(auth, updated_tokens)
-                if persisted is not None:
-                    auth, tokens = persisted
-                else:
-                    tokens = updated_tokens
-
-    if not isinstance(account_id, str) or not account_id:
-        account_id = _derive_account_id(id_token)
-
-    access_token = access_token if isinstance(access_token, str) and access_token else None
-    id_token = id_token if isinstance(id_token, str) and id_token else None
-    account_id = account_id if isinstance(account_id, str) and account_id else None
-    return access_token, account_id, id_token
-
-
-def _should_refresh_access_token(access_token: Optional[str], last_refresh: Any) -> bool:
-    if not isinstance(access_token, str) or not access_token:
-        return True
-
-    claims = parse_jwt_claims(access_token) or {}
-    exp = claims.get("exp") if isinstance(claims, dict) else None
-    now = datetime.datetime.now(datetime.timezone.utc)
-    if isinstance(exp, (int, float)):
-        try:
-            expiry = datetime.datetime.fromtimestamp(float(exp), datetime.timezone.utc)
-        except (OverflowError, OSError, ValueError):
-            expiry = None
-        if expiry is not None:
-            return expiry <= now + datetime.timedelta(minutes=5)
-
-    if isinstance(last_refresh, str):
-        refreshed_at = _parse_iso8601(last_refresh)
-        if refreshed_at is not None:
-            return refreshed_at <= now - datetime.timedelta(minutes=55)
-    return False
-
-
-def _refresh_chatgpt_tokens(refresh_token: str, client_id: str) -> Optional[Dict[str, Optional[str]]]:
-    payload = {
-        "grant_type": "refresh_token",
-        "refresh_token": refresh_token,
-        "client_id": client_id,
-        "scope": "openid profile email offline_access",
-    }
-
-    try:
-        resp = requests.post(OAUTH_TOKEN_URL, json=payload, timeout=30)
-    except requests.RequestException as exc:
-        eprint(f"ERROR: failed to refresh ChatGPT token: {exc}")
-        return None
-
-    if resp.status_code >= 400:
-        eprint(f"ERROR: refresh token request returned status {resp.status_code}")
-        return None
-
-    try:
-        data = resp.json()
-    except ValueError as exc:
-        eprint(f"ERROR: unable to parse refresh token response: {exc}")
-        return None
-
-    id_token = data.get("id_token")
-    access_token = data.get("access_token")
-    new_refresh_token = data.get("refresh_token") or refresh_token
-    if not isinstance(id_token, str) or not isinstance(access_token, str):
-        eprint("ERROR: refresh token response missing expected tokens")
-        return None
-
-    account_id = _derive_account_id(id_token)
-    new_refresh_token = new_refresh_token if isinstance(new_refresh_token, str) and new_refresh_token else refresh_token
-    return {
-        "id_token": id_token,
-        "access_token": access_token,
-        "refresh_token": new_refresh_token,
-        "account_id": account_id,
-    }
-
-
-def _persist_refreshed_auth(auth: Dict[str, Any], updated_tokens: Dict[str, Any]) -> Optional[Tuple[Dict[str, Any], Dict[str, Any]]]:
-    updated_auth = dict(auth)
-    updated_auth["tokens"] = updated_tokens
-    updated_auth["last_refresh"] = _now_iso8601()
-    if write_auth_file(updated_auth):
-        return updated_auth, updated_tokens
-    eprint("ERROR: unable to persist refreshed auth tokens")
-    return None
-
-
-def _derive_account_id(id_token: Optional[str]) -> Optional[str]:
-    if not isinstance(id_token, str) or not id_token:
-        return None
-    claims = parse_jwt_claims(id_token) or {}
-    auth_claims = claims.get("https://api.openai.com/auth") if isinstance(claims, dict) else None
-    if isinstance(auth_claims, dict):
-        account_id = auth_claims.get("chatgpt_account_id")
-        if isinstance(account_id, str) and account_id:
-            return account_id
-    return None
-
-
-def _parse_iso8601(value: str) -> Optional[datetime.datetime]:
-    try:
-        if value.endswith("Z"):
-            value = value[:-1] + "+00:00"
-        dt = datetime.datetime.fromisoformat(value)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=datetime.timezone.utc)
-        return dt.astimezone(datetime.timezone.utc)
-    except Exception:
-        return None
-
-
-def _now_iso8601() -> str:
-    return datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
-
-
-def get_effective_chatgpt_auth() -> tuple[str | None, str | None]:
-    access_token, account_id, id_token = load_chatgpt_tokens()
-    if not account_id:
-        account_id = _derive_account_id(id_token)
-    return access_token, account_id
-
-
-def sse_translate_chat(
+async def sse_translate_chat(
     upstream,
     model: str,
     created: int,
@@ -383,7 +29,7 @@ def sse_translate_chat(
     reasoning_compat: str = "think-tags",
     *,
     include_usage: bool = False,
-):
+) -> AsyncGenerator[bytes, None]:
     response_id = "chatcmpl-stream"
     compat = (reasoning_compat or "think-tags").strip().lower()
     think_open = False
@@ -421,35 +67,20 @@ def sse_translate_chat(
         else:
             return "{}"
     
-    def _extract_usage(evt: Dict[str, Any]) -> Dict[str, int] | None:
-        try:
-            usage = (evt.get("response") or {}).get("usage")
-            if not isinstance(usage, dict):
-                return None
-            pt = int(usage.get("input_tokens") or 0)
-            ct = int(usage.get("output_tokens") or 0)
-            tt = int(usage.get("total_tokens") or (pt + ct))
-            return {"prompt_tokens": pt, "completion_tokens": ct, "total_tokens": tt}
-        except Exception:
-            return None
     try:
         try:
-            line_iterator = upstream.iter_lines(decode_unicode=False)
-        except requests.exceptions.ChunkedEncodingError as e:
+            line_iterator = upstream.aiter_lines()
+        except httpx.HTTPError as e:
             if verbose and vlog:
                 vlog(f"Failed to start stream: {e}")
             yield b"data: [DONE]\n\n"
             return
 
-        for raw in line_iterator:
+        async for raw in line_iterator:
             try:
                 if not raw:
                     continue
-                line = (
-                    raw.decode("utf-8", errors="ignore")
-                    if isinstance(raw, (bytes, bytearray))
-                    else raw
-                )
+                line = raw if isinstance(raw, str) else raw.decode("utf-8", errors="ignore")
                 if verbose and vlog:
                     vlog(line)
                 if not line.startswith("data: "):
@@ -464,7 +95,8 @@ def sse_translate_chat(
                 except (json.JSONDecodeError, UnicodeDecodeError):
                     continue
             except (
-                requests.exceptions.ChunkedEncodingError,
+                httpx.ReadError,
+                httpx.RemoteProtocolError,
                 ConnectionError,
                 BrokenPipeError,
             ) as e:
@@ -786,29 +418,26 @@ def sse_translate_chat(
                 yield b"data: [DONE]\n\n"
                 break
     finally:
-        upstream.close()
+        await upstream.aclose()
 
 
-def sse_translate_text(upstream, model: str, created: int, verbose: bool = False, vlog=None, *, include_usage: bool = False):
+async def sse_translate_text(
+    upstream, 
+    model: str, 
+    created: int, 
+    verbose: bool = False, 
+    vlog=None, 
+    *, 
+    include_usage: bool = False
+) -> AsyncGenerator[bytes, None]:
     response_id = "cmpl-stream"
     upstream_usage = None
     
-    def _extract_usage(evt: Dict[str, Any]) -> Dict[str, int] | None:
-        try:
-            usage = (evt.get("response") or {}).get("usage")
-            if not isinstance(usage, dict):
-                return None
-            pt = int(usage.get("input_tokens") or 0)
-            ct = int(usage.get("output_tokens") or 0)
-            tt = int(usage.get("total_tokens") or (pt + ct))
-            return {"prompt_tokens": pt, "completion_tokens": ct, "total_tokens": tt}
-        except Exception:
-            return None
     try:
-        for raw_line in upstream.iter_lines(decode_unicode=False):
+        async for raw_line in upstream.aiter_lines():
             if not raw_line:
                 continue
-            line = raw_line.decode("utf-8", errors="ignore") if isinstance(raw_line, (bytes, bytearray)) else raw_line
+            line = raw_line if isinstance(raw_line, str) else raw_line.decode("utf-8", errors="ignore")
             if verbose and vlog:
                 vlog(line)
             if not line.startswith("data: "):
@@ -871,4 +500,4 @@ def sse_translate_text(upstream, model: str, created: int, verbose: bool = False
                 yield b"data: [DONE]\n\n"
                 break
     finally:
-        upstream.close()
+        await upstream.aclose()

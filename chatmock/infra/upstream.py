@@ -1,17 +1,13 @@
 from __future__ import annotations
 
 import json
-import time
 from typing import Any, Dict, List, Tuple
 
-import requests
-from flask import Response, current_app, jsonify, make_response
+import httpx
 
-from .config import CHATGPT_RESPONSES_URL
-from .http import build_cors_headers
-from .session import ensure_session_id
-from flask import request as flask_request
-from .utils import get_effective_chatgpt_auth
+from chatmock.core.constants import CHATGPT_RESPONSES_URL
+from chatmock.infra.auth import get_effective_chatgpt_auth
+from chatmock.infra.session import ensure_session_id
 
 
 def _log_json(prefix: str, payload: Any) -> None:
@@ -61,7 +57,7 @@ def normalize_model_name(name: str | None, debug_model: str | None = None) -> st
     return mapping.get(base, base)
 
 
-def start_upstream_request(
+async def start_upstream_request(
     model: str,
     input_items: List[Dict[str, Any]],
     *,
@@ -70,36 +66,32 @@ def start_upstream_request(
     tool_choice: Any | None = None,
     parallel_tool_calls: bool = False,
     reasoning_param: Dict[str, Any] | None = None,
-):
-    access_token, account_id = get_effective_chatgpt_auth()
+    client_session_id: str | None = None,
+    verbose: bool = False,
+) -> Tuple[Any, Dict[str, Any] | None]:
+    """
+    Start an upstream request to ChatGPT Responses API.
+    
+    Returns:
+        Tuple of (upstream_response, error_dict)
+        - If successful: (httpx.Response streaming context, None)
+        - If error: (None, error_dict with status code and message)
+    """
+    access_token, account_id = await get_effective_chatgpt_auth()
     if not access_token or not account_id:
-        resp = make_response(
-            jsonify(
-                {
-                    "error": {
-                        "message": "Missing ChatGPT credentials. Run 'python3 chatmock.py login' first.",
-                    }
+        return None, {
+            "status": 401,
+            "body": {
+                "error": {
+                    "message": "Missing ChatGPT credentials. Run 'python3 chatmock.py login' first.",
                 }
-            ),
-            401,
-        )
-        for k, v in build_cors_headers().items():
-            resp.headers.setdefault(k, v)
-        return None, resp
+            },
+        }
 
     include: List[str] = []
     if isinstance(reasoning_param, dict):
         include.append("reasoning.encrypted_content")
 
-    client_session_id = None
-    try:
-        client_session_id = (
-            flask_request.headers.get("X-Session-Id")
-            or flask_request.headers.get("session_id")
-            or None
-        )
-    except Exception:
-        client_session_id = None
     session_id = ensure_session_id(instructions, input_items, client_session_id)
 
     responses_payload = {
@@ -119,11 +111,6 @@ def start_upstream_request(
     if reasoning_param is not None:
         responses_payload["reasoning"] = reasoning_param
 
-    verbose = False
-    try:
-        verbose = bool(current_app.config.get("VERBOSE"))
-    except Exception:
-        verbose = False
     if verbose:
         _log_json("OUTBOUND >> ChatGPT Responses API payload", responses_payload)
 
@@ -137,16 +124,18 @@ def start_upstream_request(
     }
 
     try:
-        upstream = requests.post(
+        client = httpx.AsyncClient(timeout=600.0)
+        response = await client.post(
             CHATGPT_RESPONSES_URL,
             headers=headers,
             json=responses_payload,
-            stream=True,
-            timeout=600,
         )
-    except requests.RequestException as e:
-        resp = make_response(jsonify({"error": {"message": f"Upstream ChatGPT request failed: {e}"}}), 502)
-        for k, v in build_cors_headers().items():
-            resp.headers.setdefault(k, v)
-        return None, resp
-    return upstream, None
+        # Return the client along with response so it stays open for streaming
+        # The caller should close both when done
+        response._client = client
+        return response, None
+    except httpx.RequestError as e:
+        return None, {
+            "status": 502,
+            "body": {"error": {"message": f"Upstream ChatGPT request failed: {e}"}},
+        }

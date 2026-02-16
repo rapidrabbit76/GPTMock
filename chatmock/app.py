@@ -1,50 +1,85 @@
 from __future__ import annotations
 
-from flask import Flask, jsonify
+from contextlib import asynccontextmanager
+from typing import AsyncGenerator
 
-from .config import BASE_INSTRUCTIONS, GPT5_CODEX_INSTRUCTIONS
-from .http import build_cors_headers
-from .routes_openai import openai_bp
-from .routes_ollama import ollama_bp
+import httpx
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from chatmock.core.settings import Settings
+from chatmock.routers.health import router as health_router
+from chatmock.routers.ollama import router as ollama_router
+from chatmock.routers.openai import router as openai_router
 
 
-def create_app(
-    verbose: bool = False,
-    verbose_obfuscation: bool = False,
-    reasoning_effort: str = "medium",
-    reasoning_summary: str = "auto",
-    reasoning_compat: str = "think-tags",
-    debug_model: str | None = None,
-    expose_reasoning_models: bool = False,
-    default_web_search: bool = False,
-) -> Flask:
-    app = Flask(__name__)
+# Global httpx client (managed by lifespan)
+_http_client: httpx.AsyncClient | None = None
 
-    app.config.update(
-        VERBOSE=bool(verbose),
-        VERBOSE_OBFUSCATION=bool(verbose_obfuscation),
-        REASONING_EFFORT=reasoning_effort,
-        REASONING_SUMMARY=reasoning_summary,
-        REASONING_COMPAT=reasoning_compat,
-        DEBUG_MODEL=debug_model,
-        BASE_INSTRUCTIONS=BASE_INSTRUCTIONS,
-        GPT5_CODEX_INSTRUCTIONS=GPT5_CODEX_INSTRUCTIONS,
-        EXPOSE_REASONING_MODELS=bool(expose_reasoning_models),
-        DEFAULT_WEB_SEARCH=bool(default_web_search),
+
+def get_http_client() -> httpx.AsyncClient:
+    """Get the global httpx client (must be called within lifespan context)."""
+    if _http_client is None:
+        raise RuntimeError("HTTP client not initialized. App lifespan not started.")
+    return _http_client
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    """
+    FastAPI lifespan context manager.
+    
+    Manages httpx.AsyncClient lifecycle for the entire application.
+    """
+    global _http_client
+    
+    # Startup: create httpx client
+    _http_client = httpx.AsyncClient(timeout=300.0)
+    
+    try:
+        yield
+    finally:
+        # Shutdown: close httpx client
+        if _http_client is not None:
+            await _http_client.aclose()
+            _http_client = None
+
+
+def create_app(settings: Settings | None = None) -> FastAPI:
+    """
+    Create and configure FastAPI application.
+    
+    Args:
+        settings: Optional Settings instance. If None, creates from environment.
+    
+    Returns:
+        Configured FastAPI application.
+    """
+    if settings is None:
+        from chatmock.core.dependencies import get_settings
+        settings = get_settings()
+    
+    # Create FastAPI app with lifespan
+    app = FastAPI(
+        title="ChatMock",
+        description="OpenAI & Ollama compatible API powered by ChatGPT",
+        version="1.0.0",
+        lifespan=lifespan,
     )
-
-    @app.get("/")
-    @app.get("/health")
-    def health():
-        return jsonify({"status": "ok"})
-
-    @app.after_request
-    def _cors(resp):
-        for k, v in build_cors_headers().items():
-            resp.headers.setdefault(k, v)
-        return resp
-
-    app.register_blueprint(openai_bp)
-    app.register_blueprint(ollama_bp)
-
+    
+    # Add CORS middleware
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+        expose_headers=["*"],
+    )
+    
+    # Register routers
+    app.include_router(health_router)
+    app.include_router(openai_router)
+    app.include_router(ollama_router)
+    
     return app

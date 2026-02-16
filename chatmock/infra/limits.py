@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping, Optional
 
-from .utils import get_home_dir
+from chatmock.infra.auth import get_home_dir
 
 _PRIMARY_USED = "x-codex-primary-used-percent"
 _PRIMARY_WINDOW = "x-codex-primary-window-minutes"
@@ -197,4 +197,3 @@ def compute_reset_at(captured_at: datetime, window: RateLimitWindow) -> Optional
         return captured_at + timedelta(seconds=int(window.resets_in_seconds))
     except Exception:
         return None
-
