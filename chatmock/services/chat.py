@@ -45,6 +45,7 @@ async def _call_upstream(
     tool_choice: Any | None = None,
     parallel_tool_calls: bool = False,
     reasoning_param: Dict[str, Any] | None = None,
+    text_format: Dict[str, Any] | None = None,
 ) -> httpx.Response:
     """Call ChatGPT Responses API with upstream request."""
     include: List[str] = []
@@ -67,6 +68,9 @@ async def _call_upstream(
 
     if reasoning_param is not None:
         responses_payload["reasoning"] = reasoning_param
+
+    if isinstance(text_format, dict):
+        responses_payload["text"] = {"format": text_format}
 
     if settings.verbose:
         log_json("OUTBOUND >> ChatGPT Responses API payload", responses_payload, logger=print)
@@ -107,6 +111,64 @@ def _extract_usage(evt: Dict[str, Any]) -> Dict[str, int] | None:
         return {"prompt_tokens": pt, "completion_tokens": ct, "total_tokens": tt}
     except Exception:
         return None
+
+
+def _build_text_format(response_format: Any) -> Dict[str, Any] | None:
+    if not isinstance(response_format, dict):
+        return None
+
+    fmt_type = response_format.get("type")
+    if not isinstance(fmt_type, str):
+        return None
+
+    if fmt_type == "json_schema":
+        json_schema = response_format.get("json_schema")
+        source = json_schema if isinstance(json_schema, dict) else response_format
+
+        name = source.get("name") if isinstance(source, dict) else None
+        schema = source.get("schema") if isinstance(source, dict) else None
+        strict = source.get("strict") if isinstance(source, dict) else None
+
+        if not isinstance(name, str) or not name.strip() or not isinstance(schema, dict):
+            raise ChatCompletionError(
+                "response_format.type=json_schema requires json_schema.name and json_schema.schema",
+                status_code=400,
+                error_data={
+                    "error": {
+                        "message": "response_format.type=json_schema requires json_schema.name and json_schema.schema",
+                        "code": "INVALID_RESPONSE_FORMAT",
+                    }
+                },
+            )
+
+        out: Dict[str, Any] = {"type": "json_schema", "name": name.strip(), "schema": schema}
+        if isinstance(strict, bool):
+            out["strict"] = strict
+        return out
+
+    if fmt_type == "json_object":
+        return {"type": "json_object"}
+
+    if fmt_type == "text":
+        return {"type": "text"}
+
+    raise ChatCompletionError(
+        f"Unsupported response_format.type: {fmt_type}",
+        status_code=400,
+        error_data={
+            "error": {
+                "message": f"Unsupported response_format.type: {fmt_type}",
+                "code": "INVALID_RESPONSE_FORMAT",
+            }
+        },
+    )
+
+
+def _is_strict_json_text_format(text_format: Dict[str, Any] | None) -> bool:
+    if not isinstance(text_format, dict):
+        return False
+    t = text_format.get("type")
+    return isinstance(t, str) and t in ("json_schema", "json_object")
 
 
 async def process_chat_completion(
@@ -239,6 +301,8 @@ async def process_chat_completion(
     if isinstance(responses_tool_choice, str) and responses_tool_choice in ("auto", "none"):
         tool_choice = responses_tool_choice
 
+    text_format = _build_text_format(payload.get("response_format"))
+
     # 8. Convert messages to upstream format
     input_items = convert_chat_messages_to_responses_input(messages)
     if not input_items and isinstance(payload.get("prompt"), str) and payload.get("prompt").strip():
@@ -273,6 +337,7 @@ async def process_chat_completion(
             tool_choice=tool_choice,
             parallel_tool_calls=parallel_tool_calls,
             reasoning_param=reasoning_param,
+            text_format=text_format,
         )
     except ChatCompletionError:
         raise
@@ -305,6 +370,7 @@ async def process_chat_completion(
                     tool_choice=safe_choice,
                     parallel_tool_calls=parallel_tool_calls,
                     reasoning_param=reasoning_param,
+                    text_format=text_format,
                 )
                 
                 if upstream2.status_code < 400:
@@ -420,12 +486,13 @@ async def process_chat_completion(
         message: Dict[str, Any] = {"role": "assistant", "content": full_text if full_text else None}
         if tool_calls:
             message["tool_calls"] = tool_calls
-        message = apply_reasoning_to_message(
-            message,
-            reasoning_summary_text,
-            reasoning_full_text,
-            settings.reasoning_compat,
-        )
+        if not _is_strict_json_text_format(text_format):
+            message = apply_reasoning_to_message(
+                message,
+                reasoning_summary_text,
+                reasoning_full_text,
+                settings.reasoning_compat,
+            )
         
         completion = {
             "id": response_id or "chatcmpl",
