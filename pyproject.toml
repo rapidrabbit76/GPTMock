@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=61"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "chatmock"
@@ -9,21 +9,26 @@ requires-python = ">=3.13"
 dependencies = [
     "certifi==2025.8.3",
     "click==8.2.1",
-    "flask==3.1.1",
+    "fastapi>=0.104.0",
+    "httpx>=0.25.0",
     "idna==3.10",
-    "itsdangerous==2.2.0",
-    "jinja2==3.1.6",
-    "markupsafe==3.0.2",
-    "requests==2.32.5",
-    "urllib3==2.5.0",
-    "werkzeug==3.1.3",
+    "langchain-openai>=1.1.9",
+    "openai>=2.21.0",
+    "pydantic-settings>=2.0.0",
+    "uvicorn[standard]>=0.24.0",
 ]
 
 [project.scripts]
 chatmock = "chatmock.cli:main"
 
-[tool.setuptools.packages.find]
-include = ["chatmock*"]
+[tool.hatch.build.targets.wheel]
+packages = ["chatmock"]
 
-[tool.setuptools.package-data]
-chatmock = ["prompt.md", "prompt_gpt5_codex.md"]
+[tool.hatch.build.targets.wheel.force-include]
+"chatmock/prompt.md" = "chatmock/prompt.md"
+"chatmock/prompt_gpt5_codex.md" = "chatmock/prompt_gpt5_codex.md"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.1",
+]
