@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+export CHATMOCK_HOME="${CHATMOCK_HOME:-/data}"
 export CHATGPT_LOCAL_HOME="${CHATGPT_LOCAL_HOME:-/data}"
 
 cmd="${1:-serve}"

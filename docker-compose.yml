@@ -1,19 +1,18 @@
-version: "3.9"
-
 services:
   chatmock:
-    build: .
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
     image: chatmock:latest
     container_name: chatmock
     command: ["serve"]
     env_file: .env
     environment:
-      - CHATGPT_LOCAL_HOME=/data
+      - CHATMOCK_HOME=/data
     ports:
       - "8000:8000"
     volumes:
       - chatmock_data:/data
-      - ./prompt.md:/app/prompt.md:ro
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health').status==200 else 1)\" "]
       interval: 10s
@@ -26,7 +25,7 @@ services:
     profiles: ["login"]
     command: ["login"]
     environment:
-      - CHATGPT_LOCAL_HOME=/data
+      - CHATMOCK_HOME=/data
       - CHATGPT_LOCAL_LOGIN_BIND=0.0.0.0
     volumes:
       - chatmock_data:/data
