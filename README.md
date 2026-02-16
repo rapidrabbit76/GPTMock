@@ -20,6 +20,8 @@
 ChatMock runs a local server that creates an OpenAI/Ollama compatible API, and requests are then fulfilled using your authenticated ChatGPT login with the oauth client of Codex, OpenAI's coding CLI tool. This allows you to use GPT-5, GPT-5-Codex, and other models right through your OpenAI account, without requiring an api key. You are then able to use it in other chat apps or other coding tools. <br>
 This does require a paid ChatGPT account.
 
+> **Fork note:** This fork migrates the original [RayBytes/ChatMock](https://github.com/RayBytes/ChatMock) from Flask + synchronous `requests` to **FastAPI + async `httpx`**, adds a layered architecture (router / service / infra), manages configuration via `pydantic-settings`, and uses `uv` as the build system. It also adds the OpenAI Responses API endpoint (`POST /v1/responses`) and structured output (`response_format`) support.
+
 ## Quickstart
 
 ### Mac Users
@@ -121,6 +123,7 @@ curl http://127.0.0.1:8000/v1/chat/completions \
 - `gpt-5.1-codex`
 - `gpt-5.1-codex-max`
 - `gpt-5.1-codex-mini`
+- `gpt-5.3-codex`
 - `codex-mini`
 
 # Customisation / Configuration
