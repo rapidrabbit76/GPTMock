@@ -102,8 +102,7 @@ uv run python chatmock.py serve --expose-reasoning-models
 # Build package distribution
 uv build
 
-# Build script (for macOS app)
-python build.py
+
 ```
 
 ### Docker
