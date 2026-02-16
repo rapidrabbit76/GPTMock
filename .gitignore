@@ -31,3 +31,8 @@ uv.lock
 .sisyphus/
 
 *.ipynb
+
+
+# ETC
+
+etc/
