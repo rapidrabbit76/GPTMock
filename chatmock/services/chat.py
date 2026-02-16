@@ -85,12 +85,14 @@ async def _call_upstream(
     }
 
     try:
-        upstream = await http_client.post(
+        req = http_client.build_request(
+            "POST",
             CHATGPT_RESPONSES_URL,
             headers=headers,
             json=responses_payload,
             timeout=600.0,
         )
+        upstream = await http_client.send(req, stream=True)
         return upstream
     except httpx.RequestError as e:
         raise ChatCompletionError(
@@ -345,9 +347,10 @@ async def process_chat_completion(
     # 12. Handle upstream errors
     if upstream.status_code >= 400:
         try:
+            await upstream.aread()
             err_body = upstream.json() if upstream.content else {"raw": upstream.text}
         except Exception:
-            err_body = {"raw": upstream.text}
+            err_body = {"raw": getattr(upstream, 'text', 'unknown error')}
 
         # Retry without extra tools if they were rejected
         if had_responses_tools:
@@ -605,9 +608,10 @@ async def process_text_completion(
     # 9. Handle upstream errors
     if upstream.status_code >= 400:
         try:
+            await upstream.aread()
             err_body = upstream.json() if upstream.content else {"raw": upstream.text}
         except Exception:
-            err_body = {"raw": upstream.text}
+            err_body = {"raw": getattr(upstream, 'text', 'unknown error')}
         raise ChatCompletionError(
             (err_body.get("error", {}) or {}).get("message", "Upstream error"),
             status_code=upstream.status_code,
