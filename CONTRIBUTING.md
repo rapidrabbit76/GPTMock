@@ -7,7 +7,7 @@ We welcome thoughtful improvements. This guide calls out the expectations that k
 ### Before changing code...
 - Open an issue before large or risky efforts so scope is agreed up front.
 - Keep pull requests focused and easy to follow & break sweeping changes into a series when possible.
-- Treat documentation, code, and packaging (CLI, Docker, GUI) as a single surface (your updates should apply to all).
+- Treat documentation, code, and packaging (CLI, Docker) as a single surface (your updates should apply to all).
 
 ### Getting Set Up
 - Review the Quickstart section in README.md
@@ -17,7 +17,7 @@ We welcome thoughtful improvements. This guide calls out the expectations that k
 ### Working With Core Files
 - `prompt.md` and related Codex harness files are sensitive. Do not modify them or move entry points without prior maintainer approval.
 - Be cautious with parameter names, response payload shapes, and file locations consumed by downstream clients. Coordinate before changing them.
-- When touching shared logic, update both OpenAI and Ollama routes, plus any CLI/GUI code that depends on the same behaviour.
+- When touching shared logic, update both OpenAI and Ollama routes, plus any CLI code that depends on the same behaviour.
 
 ## Designing Features and Fixes
 - Prefer opt-in flags or config switches for new capabilities & leave defaults unchanged until maintainers confirm the rollout plan.

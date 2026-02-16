@@ -24,22 +24,9 @@ This does require a paid ChatGPT account.
 
 ## Quickstart
 
-### Mac Users
+### Homebrew (macOS)
 
-#### GUI Application
-
-If you're on **macOS**, you can download the GUI app from the [GitHub releases](https://github.com/RayBytes/ChatMock/releases).  
-> **Note:** Since ChatMock isn't signed with an Apple Developer ID, you may need to run the following command in your terminal to open the app:
->
-> ```bash
-> xattr -dr com.apple.quarantine /Applications/ChatMock.app
-> ```
->
-> *[More info here.](https://github.com/deskflow/deskflow/wiki/Running-on-macOS)*
-
-#### Command Line (Homebrew)
-
-You can also install ChatMock as a command-line tool using [Homebrew](https://brew.sh/):
+Install ChatMock as a command-line tool using [Homebrew](https://brew.sh/):
 ```
 brew tap RayBytes/chatmock
 brew install chatmock
