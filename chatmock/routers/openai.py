@@ -12,6 +12,7 @@ from chatmock.core.logging import log_json
 from chatmock.core.settings import Settings
 from chatmock.services.chat import ChatCompletionError, process_chat_completion, process_text_completion
 from chatmock.services.model_registry import get_openai_models
+from chatmock.services.responses import process_responses_api
 
 
 router = APIRouter()
@@ -130,6 +131,53 @@ async def completions(
         error_response = e.error_data or {"error": {"message": e.message}}
         if settings.verbose:
             log_json("OUT POST /v1/completions ERROR", error_response, logger=print)
+        return JSONResponse(error_response, status_code=e.status_code)
+
+
+@router.post("/v1/responses")
+async def responses_create(
+    request: Request,
+    settings: Settings = Depends(get_settings),
+    http_client: httpx.AsyncClient = Depends(get_http_client),
+):
+    try:
+        raw_body = await request.body()
+        raw_text = raw_body.decode("utf-8")
+
+        if settings.verbose:
+            print(f"IN POST /v1/responses\n{raw_text}")
+
+        payload = json.loads(raw_text) if raw_text else {}
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        error_response = {"error": {"message": "Invalid JSON body"}}
+        if settings.verbose:
+            log_json("OUT POST /v1/responses ERROR", error_response, logger=print)
+        return JSONResponse(error_response, status_code=400)
+
+    try:
+        response, is_streaming = await process_responses_api(
+            payload=payload,
+            settings=settings,
+            http_client=http_client,
+            client_session_id=request.headers.get("session_id"),
+        )
+
+        if is_streaming:
+            return StreamingResponse(
+                response,
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                },
+            )
+
+        return JSONResponse(response)
+
+    except ChatCompletionError as e:
+        error_response = e.error_data or {"error": {"message": e.message}}
+        if settings.verbose:
+            log_json("OUT POST /v1/responses ERROR", error_response, logger=print)
         return JSONResponse(error_response, status_code=e.status_code)
 
 
