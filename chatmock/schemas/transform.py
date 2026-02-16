@@ -146,4 +146,3 @@ def normalize_ollama_tools(tools: List[Dict[str, Any]] | None) -> List[Dict[str,
                 }
             )
     return out
-

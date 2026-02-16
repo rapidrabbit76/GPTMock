@@ -8,11 +8,10 @@ import sys
 import webbrowser
 from datetime import datetime
 
-from .app import create_app
-from .config import CLIENT_ID_DEFAULT
-from .limits import RateLimitWindow, compute_reset_at, load_rate_limit_snapshot
-from .oauth import OAuthHTTPServer, OAuthHandler, REQUIRED_PORT, URL_BASE
-from .utils import eprint, get_home_dir, load_chatgpt_tokens, parse_jwt_claims, read_auth_file
+from chatmock.core.constants import CLIENT_ID_DEFAULT
+from chatmock.infra.limits import RateLimitWindow, compute_reset_at, load_rate_limit_snapshot
+from chatmock.infra.oauth import OAuthHTTPServer, OAuthHandler, REQUIRED_PORT, URL_BASE
+from chatmock.infra.auth import eprint, get_home_dir, parse_jwt_claims, read_auth_file
 
 
 _STATUS_LIMIT_BAR_SEGMENTS = 30
@@ -186,6 +185,150 @@ def _print_usage_limits_block() -> None:
 
     print()
 
+def _format_token_expiry(exp_timestamp: int | float | None) -> tuple[str, bool]:
+    if exp_timestamp is None:
+        return "unknown", False
+    try:
+        expiry = datetime.fromtimestamp(float(exp_timestamp), tz=_UTC)
+        now = datetime.now(tz=_UTC)
+        expired = expiry <= now
+
+        if expired:
+            delta = now - expiry
+        else:
+            delta = expiry - now
+
+        days = delta.days
+        hours, rem = divmod(delta.seconds, 3600)
+        minutes = rem // 60
+
+        parts: list[str] = []
+        if days:
+            parts.append(f"{days}d")
+        if hours:
+            parts.append(f"{hours}h")
+        if minutes and not days:
+            parts.append(f"{minutes}m")
+        time_str = " ".join(parts) if parts else "< 1m"
+
+        local_expiry = expiry.astimezone()
+        tz_name = local_expiry.tzname() or "local"
+        date_str = local_expiry.strftime("%Y-%m-%d %H:%M")
+
+        if expired:
+            return f"{date_str} {tz_name} ({time_str} ago) \033[91m[EXPIRED]\033[0m", True
+        else:
+            return f"{date_str} {tz_name} ({time_str} left)", False
+    except Exception:
+        return "unknown", False
+
+
+_UTC = __import__("datetime").timezone.utc
+
+
+def cmd_info(auth: dict | None) -> int:
+    if not isinstance(auth, dict):
+        print("  Not signed in")
+        print(f"  Run: uv run python chatmock.py login")
+        print()
+        _print_usage_limits_block()
+        return 0
+
+    tokens = auth.get("tokens") if isinstance(auth.get("tokens"), dict) else {}
+    access_token = tokens.get("access_token") if isinstance(tokens, dict) else None
+    id_token = tokens.get("id_token") if isinstance(tokens, dict) else None
+    account_id = tokens.get("account_id") if isinstance(tokens, dict) else None
+    last_refresh = auth.get("last_refresh")
+
+    if not access_token and not id_token:
+        print("  Not signed in")
+        print(f"  Run: uv run python chatmock.py login")
+        print()
+        _print_usage_limits_block()
+        return 0
+
+    id_claims = parse_jwt_claims(id_token) if id_token else {}
+    access_claims = parse_jwt_claims(access_token) if access_token else {}
+    id_claims = id_claims or {}
+    access_claims = access_claims or {}
+
+    auth_data = id_claims.get("https://api.openai.com/auth") or {}
+    access_auth_data = access_claims.get("https://api.openai.com/auth") or {}
+
+    email = id_claims.get("email") or id_claims.get("preferred_username") or "<unknown>"
+    auth_provider = id_claims.get("auth_provider", "unknown")
+
+    plan_raw = auth_data.get("chatgpt_plan_type") or access_auth_data.get("chatgpt_plan_type") or "unknown"
+    plan_map = {"plus": "Plus", "pro": "Pro", "free": "Free", "team": "Team", "enterprise": "Enterprise"}
+    plan = plan_map.get(str(plan_raw).lower(), str(plan_raw).title() if isinstance(plan_raw, str) else "Unknown")
+
+    if not account_id:
+        account_id = auth_data.get("chatgpt_account_id") or access_auth_data.get("chatgpt_account_id")
+    user_id = auth_data.get("chatgpt_user_id") or access_auth_data.get("chatgpt_user_id")
+
+    sub_start = auth_data.get("chatgpt_subscription_active_start")
+    sub_until = auth_data.get("chatgpt_subscription_active_until")
+
+    access_exp = access_claims.get("exp")
+    id_exp = id_claims.get("exp")
+
+    print("Account")
+    print(f"  Email     : {email}")
+    print(f"  Provider  : {auth_provider}")
+    print(f"  Plan      : {plan}")
+    if account_id:
+        print(f"  Account   : {account_id}")
+    if user_id:
+        print(f"  User      : {user_id}")
+    print()
+
+    if sub_start or sub_until:
+        print("Subscription")
+        if sub_start:
+            try:
+                start_dt = datetime.fromisoformat(sub_start).astimezone()
+                print(f"  Start     : {start_dt.strftime('%Y-%m-%d')}")
+            except Exception:
+                print(f"  Start     : {sub_start}")
+        if sub_until:
+            try:
+                until_dt = datetime.fromisoformat(sub_until).astimezone()
+                now = datetime.now(tz=_UTC)
+                active = until_dt > now
+                days_left = (until_dt - now).days if active else 0
+                status = f"\033[92mActive\033[0m ({days_left}d left)" if active else "\033[91mExpired\033[0m"
+                print(f"  Until     : {until_dt.strftime('%Y-%m-%d')}  {status}")
+            except Exception:
+                print(f"  Until     : {sub_until}")
+        print()
+
+    print("Tokens")
+    access_exp_str, access_expired = _format_token_expiry(access_exp)
+    id_exp_str, id_expired = _format_token_expiry(id_exp)
+    print(f"  Access    : {access_exp_str}")
+    print(f"  ID        : {id_exp_str}")
+    if last_refresh:
+        try:
+            lr_dt = datetime.fromisoformat(last_refresh.replace("Z", "+00:00")).astimezone()
+            tz_name = lr_dt.tzname() or "local"
+            print(f"  Refreshed : {lr_dt.strftime('%Y-%m-%d %H:%M')} {tz_name}")
+        except Exception:
+            print(f"  Refreshed : {last_refresh}")
+
+    if access_expired:
+        print()
+        print(f"\033[93m  Access token expired. It will auto-refresh on next server request.\033[0m")
+        print(f"\033[93m  Or re-login: uv run python chatmock.py login\033[0m")
+    print()
+
+    print(f"Storage")
+    print(f"  Path      : {get_home_dir()}/auth.json")
+    print()
+
+    _print_usage_limits_block()
+    return 0
+
+
 def cmd_login(no_browser: bool, verbose: bool) -> int:
     home_dir = get_home_dir()
     client_id = CLIENT_ID_DEFAULT
@@ -271,18 +414,34 @@ def cmd_serve(
     expose_reasoning_models: bool,
     default_web_search: bool,
 ) -> int:
-    app = create_app(
-        verbose=verbose,
-        verbose_obfuscation=verbose_obfuscation,
-        reasoning_effort=reasoning_effort,
-        reasoning_summary=reasoning_summary,
-        reasoning_compat=reasoning_compat,
-        debug_model=debug_model,
-        expose_reasoning_models=expose_reasoning_models,
-        default_web_search=default_web_search,
+    if verbose:
+        os.environ["CHATMOCK_VERBOSE"] = "true"
+    if verbose_obfuscation:
+        os.environ["CHATMOCK_VERBOSE_OBFUSCATION"] = "true"
+    if reasoning_effort:
+        os.environ["CHATMOCK_REASONING_EFFORT"] = reasoning_effort
+    if reasoning_summary:
+        os.environ["CHATMOCK_REASONING_SUMMARY"] = reasoning_summary
+    if reasoning_compat:
+        os.environ["CHATMOCK_REASONING_COMPAT"] = reasoning_compat
+    if debug_model:
+        os.environ["CHATMOCK_DEBUG_MODEL"] = debug_model
+    if expose_reasoning_models:
+        os.environ["CHATMOCK_EXPOSE_REASONING_MODELS"] = "true"
+    if default_web_search:
+        os.environ["CHATMOCK_DEFAULT_WEB_SEARCH"] = "true"
+    
+    os.environ["CHATMOCK_HOST"] = host
+    os.environ["CHATMOCK_PORT"] = str(port)
+    
+    import uvicorn
+    uvicorn.run(
+        "chatmock.app:create_app",
+        factory=True,
+        host=host,
+        port=port,
+        log_level="info" if verbose else "warning",
     )
-
-    app.run(host=host, debug=False, use_reloader=False, port=port, threaded=True)
     return 0
 
 
@@ -376,38 +535,7 @@ def main() -> None:
         if getattr(args, "json", False):
             print(json.dumps(auth or {}, indent=2))
             sys.exit(0)
-        access_token, account_id, id_token = load_chatgpt_tokens()
-        if not access_token or not id_token:
-            print("👤 Account")
-            print("  • Not signed in")
-            print("  • Run: python3 chatmock.py login")
-            print("")
-            _print_usage_limits_block()
-            sys.exit(0)
-
-        id_claims = parse_jwt_claims(id_token) or {}
-        access_claims = parse_jwt_claims(access_token) or {}
-
-        email = id_claims.get("email") or id_claims.get("preferred_username") or "<unknown>"
-        plan_raw = (access_claims.get("https://api.openai.com/auth") or {}).get("chatgpt_plan_type") or "unknown"
-        plan_map = {
-            "plus": "Plus",
-            "pro": "Pro",
-            "free": "Free",
-            "team": "Team",
-            "enterprise": "Enterprise",
-        }
-        plan = plan_map.get(str(plan_raw).lower(), str(plan_raw).title() if isinstance(plan_raw, str) else "Unknown")
-
-        print("👤 Account")
-        print("  • Signed in with ChatGPT")
-        print(f"  • Login: {email}")
-        print(f"  • Plan: {plan}")
-        if account_id:
-            print(f"  • Account ID: {account_id}")
-        print("")
-        _print_usage_limits_block()
-        sys.exit(0)
+        sys.exit(cmd_info(auth))
     else:
         parser.error("Unknown command")
 

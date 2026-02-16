@@ -13,9 +13,9 @@ from typing import Any, Dict, Tuple
 
 import certifi
 
-from .config import OAUTH_ISSUER_DEFAULT
-from .models import AuthBundle, PkceCodes, TokenData
-from .utils import eprint, generate_pkce, parse_jwt_claims, write_auth_file
+from chatmock.core.constants import OAUTH_ISSUER_DEFAULT
+from chatmock.core.models import AuthBundle, PkceCodes, TokenData
+from chatmock.infra.auth import eprint, generate_pkce, parse_jwt_claims, write_auth_file
 
 
 REQUIRED_PORT = 1455

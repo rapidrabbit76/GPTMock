@@ -86,4 +86,3 @@ def ensure_session_id(
         sid = str(uuid.uuid4())
         _remember(fp, sid)
         return sid
-
