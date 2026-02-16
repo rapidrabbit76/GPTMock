@@ -29,3 +29,5 @@ uv.lock
 # AI Agents
 .opencode/
 .sisyphus/
+
+*.ipynb
