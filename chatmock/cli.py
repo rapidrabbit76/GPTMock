@@ -414,6 +414,15 @@ def cmd_serve(
     expose_reasoning_models: bool,
     default_web_search: bool,
 ) -> int:
+    auth = read_auth_file()
+    if not isinstance(auth, dict) or not auth.get("tokens"):
+        eprint("No credentials found. Starting login flow...")
+        login_result = cmd_login(no_browser=False, verbose=verbose)
+        if login_result != 0:
+            eprint("Login failed. Cannot start server without credentials.")
+            return login_result
+        eprint("Login successful. Starting server...\n")
+
     if verbose:
         os.environ["CHATMOCK_VERBOSE"] = "true"
     if verbose_obfuscation:
