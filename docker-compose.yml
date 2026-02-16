@@ -10,7 +10,7 @@ services:
     environment:
       - CHATMOCK_HOME=/data
     ports:
-      - "8081:8000"
+      - "8000:8000"
     volumes:
       - chatmock_data:/data
     healthcheck:
