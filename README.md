@@ -44,7 +44,7 @@ brew install chatmock
 ```
 
 ### Python
-If you wish to just simply run this as a python flask server, you are also freely welcome too.
+If you wish to run this as a local Python server, you are also freely welcome to.
 
 Clone or download this repository, then cd into the project directory. Then follow the instrunctions listed below.
 
