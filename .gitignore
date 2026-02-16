@@ -19,3 +19,13 @@ dist/
 
 # OS clutter
 .DS_Store
+
+# Environment files
+.env
+
+# uv lock file
+uv.lock
+
+# AI Agents
+.opencode/
+.sisyphus/
