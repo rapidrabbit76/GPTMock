@@ -22,7 +22,7 @@ The fastest way to run gptmock. No clone, no install — just `uvx`.
 ### 1. Login
 
 ```bash
-uvx --from "git+https://github.com/rapidrabbit76/gptmock" gptmock login
+uvx --from "git+https://github.com/rapidrabbit76/GPTMock" gptmock login
 ```
 
 A browser window will open for ChatGPT OAuth. After login, tokens are saved to `~/.config/gptmock/auth.json`.
@@ -30,7 +30,7 @@ A browser window will open for ChatGPT OAuth. After login, tokens are saved to `
 ### 2. Start the server
 
 ```bash
-uvx --from "git+https://github.com/rapidrabbit76/gptmock" gptmock serve
+uvx --from "git+https://github.com/rapidrabbit76/GPTMock" gptmock serve
 ```
 
 The server starts at `http://127.0.0.1:8000`. Use `http://127.0.0.1:8000/v1` as your OpenAI base URL.
@@ -38,13 +38,13 @@ The server starts at `http://127.0.0.1:8000`. Use `http://127.0.0.1:8000/v1` as 
 ### 3. Verify
 
 ```bash
-uvx --from "git+https://github.com/rapidrabbit76/gptmock" gptmock info
+uvx --from "git+https://github.com/rapidrabbit76/GPTMock" gptmock info
 ```
 
 ### Tip: Shell Alias
 
 ```bash
-alias gptmock='uvx --from "git+https://github.com/rapidrabbit76/gptmock" gptmock'
+alias gptmock='uvx --from "git+https://github.com/rapidrabbit76/GPTMock" gptmock'
 
 gptmock login
 gptmock serve --port 9000
@@ -58,7 +58,7 @@ gptmock info
 ### 1. Setup
 
 ```bash
-git clone https://github.com/rapidrabbit76/gptmock.git
+git clone https://github.com/rapidrabbit76/GPTMock.git
 cd gptmock
 cp .env.example .env
 docker compose build
@@ -217,7 +217,7 @@ gptmock serve [OPTIONS]
 ## Credits
 
 - Original project: [RayBytes/gptmock](https://github.com/RayBytes/gptmock)
-- This fork: [rapidrabbit76/gptmockFastAPI](https://github.com/rapidrabbit76/gptmockFastAPI)
+- This fork: [rapidrabbit76/GPTMockFastAPI](https://github.com/rapidrabbit76/GPTMockFastAPI)
 
   <p><b>OpenAI & Ollama compatible API powered by your ChatGPT plan.</b></p>
   <p>Use your ChatGPT Plus/Pro account to call OpenAI models from code or alternate chat UIs.</p>
@@ -366,10 +366,3 @@ All parameters and choices can be seen by sending `python gptmock.py serve --h`<
 The context size of this route is also larger than what you get access to in the regular ChatGPT app.<br>
 
 When the model returns a thinking summary, the model will send back thinking tags to make it compatible with chat apps. **If you don't like this behavior, you can instead set `--reasoning-compat` to legacy, and reasoning will be set in the reasoning tag instead of being returned in the actual response text.**
-
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=RayBytes/gptmock&type=Timeline)](https://www.star-history.com/#RayBytes/gptmock&Timeline)
-
-
