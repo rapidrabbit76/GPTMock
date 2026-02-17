@@ -2,8 +2,10 @@ FROM python:3.13-slim AS base
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
+
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
+    UV_PROJECT_ENVIRONMENT="/app/.venv" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/app/.venv/bin:$PATH"
@@ -21,10 +23,6 @@ COPY prompt.md prompt_gpt5_codex.md ./
 # Install the project itself
 RUN uv sync --frozen --no-dev
 
-COPY docker/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
-
 EXPOSE 8000
-
-ENTRYPOINT ["uv", "run" ,"gptmock"]
+ENTRYPOINT ["uv", "run" ,"--no-sync","gptmock"]
 CMD ["serve"]
