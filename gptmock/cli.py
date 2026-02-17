@@ -424,24 +424,24 @@ def cmd_serve(
         eprint("Login successful. Starting server...\n")
 
     if verbose:
-        os.environ["gptmock_VERBOSE"] = "true"
+        os.environ["GPTMOCK_VERBOSE"] = "true"
     if verbose_obfuscation:
-        os.environ["gptmock_VERBOSE_OBFUSCATION"] = "true"
+        os.environ["GPTMOCK_VERBOSE_OBFUSCATION"] = "true"
     if reasoning_effort:
-        os.environ["gptmock_REASONING_EFFORT"] = reasoning_effort
+        os.environ["GPTMOCK_REASONING_EFFORT"] = reasoning_effort
     if reasoning_summary:
-        os.environ["gptmock_REASONING_SUMMARY"] = reasoning_summary
+        os.environ["GPTMOCK_REASONING_SUMMARY"] = reasoning_summary
     if reasoning_compat:
-        os.environ["gptmock_REASONING_COMPAT"] = reasoning_compat
+        os.environ["GPTMOCK_REASONING_COMPAT"] = reasoning_compat
     if debug_model:
-        os.environ["gptmock_DEBUG_MODEL"] = debug_model
+        os.environ["GPTMOCK_DEBUG_MODEL"] = debug_model
     if expose_reasoning_models:
-        os.environ["gptmock_EXPOSE_REASONING_MODELS"] = "true"
+        os.environ["GPTMOCK_EXPOSE_REASONING_MODELS"] = "true"
     if default_web_search:
-        os.environ["gptmock_DEFAULT_WEB_SEARCH"] = "true"
+        os.environ["GPTMOCK_DEFAULT_WEB_SEARCH"] = "true"
     
-    os.environ["gptmock_HOST"] = host
-    os.environ["gptmock_PORT"] = str(port)
+    os.environ["GPTMOCK_HOST"] = host
+    os.environ["GPTMOCK_PORT"] = str(port)
     
     import uvicorn
     uvicorn.run(

@@ -90,13 +90,13 @@ Configure via `.env` file or docker-compose environment:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `gptmock_PORT` | `8000` | Server port |
-| `gptmock_VERBOSE` | `false` | Enable request/response logging |
-| `gptmock_REASONING_EFFORT` | `medium` | `minimal` / `low` / `medium` / `high` / `xhigh` |
-| `gptmock_REASONING_SUMMARY` | `auto` | `auto` / `concise` / `detailed` / `none` |
-| `gptmock_REASONING_COMPAT` | `think-tags` | `think-tags` / `o3` / `legacy` |
-| `gptmock_EXPOSE_REASONING_MODELS` | `false` | Expose reasoning levels as separate models |
-| `gptmock_DEFAULT_WEB_SEARCH` | `false` | Enable web search tool by default |
+| `GPTMOCK_PORT` | `8000` | Server port |
+| `GPTMOCK_VERBOSE` | `false` | Enable request/response logging |
+| `GPTMOCK_REASONING_EFFORT` | `medium` | `minimal` / `low` / `medium` / `high` / `xhigh` |
+| `GPTMOCK_REASONING_SUMMARY` | `auto` | `auto` / `concise` / `detailed` / `none` |
+| `GPTMOCK_REASONING_COMPAT` | `think-tags` | `think-tags` / `o3` / `legacy` |
+| `GPTMOCK_EXPOSE_REASONING_MODELS` | `false` | Expose reasoning levels as separate models |
+| `GPTMOCK_DEFAULT_WEB_SEARCH` | `false` | Enable web search tool by default |
 
 ---
 

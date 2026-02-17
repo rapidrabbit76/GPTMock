@@ -16,7 +16,7 @@ RUN uv sync --frozen --no-dev --no-install-project
 
 # Copy application code
 COPY gptmock/ gptmock/
-COPY gptmock.py prompt.md prompt_gpt5_codex.md ./
+COPY prompt.md prompt_gpt5_codex.md ./
 
 # Install the project itself
 RUN uv sync --frozen --no-dev
@@ -26,5 +26,5 @@ RUN chmod +x /entrypoint.sh
 
 EXPOSE 8000
 
-ENTRYPOINT ["/entrypoint.sh"]
+ENTRYPOINT ["uv", "run" ,"gptmock"]
 CMD ["serve"]

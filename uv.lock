@@ -138,7 +138,6 @@ dependencies = [
     { name = "fastapi" },
     { name = "httpx" },
     { name = "idna" },
-    { name = "langchain-openai" },
     { name = "openai" },
     { name = "pydantic-settings" },
     { name = "uvicorn", extra = ["standard"] },
@@ -146,6 +145,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "langchain-openai" },
     { name = "ruff" },
 ]
 
@@ -156,14 +156,16 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.104.0" },
     { name = "httpx", specifier = ">=0.25.0" },
     { name = "idna", specifier = "==3.10" },
-    { name = "langchain-openai", specifier = ">=1.1.9" },
     { name = "openai", specifier = ">=2.21.0" },
     { name = "pydantic-settings", specifier = ">=2.0.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.24.0" },
 ]
 
 [package.metadata.requires-dev]
-dev = [{ name = "ruff", specifier = ">=0.15.1" }]
+dev = [
+    { name = "langchain-openai", specifier = ">=1.1.9" },
+    { name = "ruff", specifier = ">=0.15.1" },
+]
 
 [[package]]
 name = "h11"
