@@ -20,7 +20,7 @@ def eprint(*args, **kwargs) -> None:
 
 
 def get_home_dir() -> str:
-    home = os.getenv("gptmock_HOME") or os.getenv("CHATGPT_LOCAL_HOME") or os.getenv("CODEX_HOME")
+    home = os.getenv("GPTMOCK_HOME") or os.getenv("CHATGPT_LOCAL_HOME") or os.getenv("CODEX_HOME")
     if not home:
         home = os.path.expanduser("~/.config/gptmock")
     return home
@@ -28,7 +28,7 @@ def get_home_dir() -> str:
 
 def read_auth_file() -> Dict[str, Any] | None:
     for base in [
-        os.getenv("gptmock_HOME"),
+        os.getenv("GPTMOCK_HOME"),
         os.getenv("CHATGPT_LOCAL_HOME"),
         os.getenv("CODEX_HOME"),
         os.path.expanduser("~/.config/gptmock"),

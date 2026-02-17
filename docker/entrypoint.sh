@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-export gptmock_HOME="${gptmock_HOME:-/data}"
+export GPTMOCK_HOME="${GPTMOCK_HOME:-/data}"
 export CHATGPT_LOCAL_HOME="${CHATGPT_LOCAL_HOME:-/data}"
 
 cmd="${1:-serve}"
