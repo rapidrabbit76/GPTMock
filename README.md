@@ -216,12 +216,13 @@ gptmock serve [OPTIONS]
 
 ## Credits
 
-- Original project: [RayBytes/gptmock](https://github.com/RayBytes/gptmock)
-- This fork: [rapidrabbit76/GPTMockFastAPI](https://github.com/rapidrabbit76/GPTMockFastAPI)
+- Original project: [RayBytes/chatmock](https://github.com/RayBytes/chatmock)
+- This fork: [rapidrabbit76/GPTMock](https://github.com/rapidrabbit76/GPTMock)
 
   <p><b>OpenAI & Ollama compatible API powered by your ChatGPT plan.</b></p>
   <p>Use your ChatGPT Plus/Pro account to call OpenAI models from code or alternate chat UIs.</p>
   <br>
+
 </div>
 
 ## What It Does
@@ -233,33 +234,29 @@ This does require a paid ChatGPT account.
 
 ## Quickstart
 
-### Homebrew (macOS)
-
-Install gptmock as a command-line tool using [Homebrew](https://brew.sh/):
-```
-brew tap RayBytes/gptmock
-brew install gptmock
-```
-
 ### Python
+
 If you wish to run this as a local Python server, you are also freely welcome to.
 
 Clone or download this repository, then cd into the project directory. Then follow the instrunctions listed below.
 
 1. Sign in with your ChatGPT account and follow the prompts
+
 ```bash
 python gptmock.py login
 ```
+
 You can make sure this worked by running `python gptmock.py info`
 
-2. After the login completes successfully, you can just simply start the local server
+1. After the login completes successfully, you can just simply start the local server
 
 ```bash
 python gptmock.py serve
 ```
-Then, you can simply use the address and port as the baseURL as you require (http://127.0.0.1:8000 by default)
 
-**Reminder:** When setting a baseURL in other applications, make you sure you include /v1/ at the end of the URL if you're using this as a OpenAI compatible endpoint (e.g http://127.0.0.1:8000/v1)
+Then, you can simply use the address and port as the baseURL as you require (<http://127.0.0.1:8000> by default)
+
+**Reminder:** When setting a baseURL in other applications, make you sure you include /v1/ at the end of the URL if you're using this as a OpenAI compatible endpoint (e.g <http://127.0.0.1:8000/v1>)
 
 ### Docker
 
@@ -267,7 +264,7 @@ Read [the docker instrunctions here](https://github.com/RayBytes/gptmock/blob/ma
 
 # Examples
 
-### Python 
+### Python
 
 ```python
 from openai import OpenAI
@@ -299,7 +296,7 @@ curl http://127.0.0.1:8000/v1/chat/completions \
 
 # What's supported
 
-- Tool/Function calling 
+- Tool/Function calling
 - Vision/Image understanding
 - Thinking summaries (through thinking tags)
 - Thinking effort
@@ -307,10 +304,11 @@ curl http://127.0.0.1:8000/v1/chat/completions \
 ## Notes & Limits
 
 - Requires an active, paid ChatGPT account.
-- Some context length might be taken up by internal instructions (but they dont seem to degrade the model) 
+- Some context length might be taken up by internal instructions (but they dont seem to degrade the model)
 - Use responsibly and at your own risk. This project is not affiliated with OpenAI, and is a educational exercise.
 
 # Supported models
+
 - `gpt-5`
 - `gpt-5.1`
 - `gpt-5.2`
@@ -328,7 +326,7 @@ curl http://127.0.0.1:8000/v1/chat/completions \
 
 - `--reasoning-effort` (choice of minimal,low,medium,high,xhigh)<br>
 GPT-5 has a configurable amount of "effort" it can put into thinking, which may cause it to take more time for a response to return, but may overall give a smarter answer. Applying this parameter after `serve` forces the server to use this reasoning effort by default, unless overrided by the API request with a different effort set. The default reasoning effort without setting this parameter is `medium`.<br>
-    The `gpt-5.1` family (including codex) supports `low`, `medium`, and `high` while `gpt-5.1-codex-max` adds `xhigh`. The `gpt-5.2` family (including codex) supports `low`, `medium`, `high`, and `xhigh`. 
+    The `gpt-5.1` family (including codex) supports `low`, `medium`, and `high` while `gpt-5.1-codex-max` adds `xhigh`. The `gpt-5.2` family (including codex) supports `low`, `medium`, `high`, and `xhigh`.
 
 ### Thinking summaries
 
@@ -345,6 +343,7 @@ You can enable it by starting the server with this parameter, which will allow O
 `responses_tool_choice`: `"auto"` or `"none"`
 
 #### Example usage
+
 ```json
 {
   "model": "gpt-5",
@@ -361,6 +360,7 @@ You can enable it by starting the server with this parameter, which will allow O
 If your preferred app doesn’t support selecting reasoning effort, or you just want a simpler approach, this parameter exposes each reasoning level as a separate, queryable model. Each reasoning level also appears individually under ⁠/v1/models, so model pickers in your favorite chat apps will list all reasoning options as distinct models you can switch between.
 
 ## Notes
+
 If you wish to have the fastest responses, I'd recommend setting `--reasoning-effort` to low, and `--reasoning-summary` to none. <br>
 All parameters and choices can be seen by sending `python gptmock.py serve --h`<br>
 The context size of this route is also larger than what you get access to in the regular ChatGPT app.<br>
