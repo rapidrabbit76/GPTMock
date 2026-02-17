@@ -6,15 +6,15 @@ from typing import Any, Dict, List
 
 import httpx
 
-from chatmock.core.constants import CHATGPT_RESPONSES_URL
-from chatmock.core.logging import log_json
-from chatmock.core.settings import Settings
-from chatmock.infra.auth import get_effective_chatgpt_auth
-from chatmock.infra.sse import sse_translate_chat, sse_translate_text
-from chatmock.infra.session import ensure_session_id
-from chatmock.schemas.messages import convert_chat_messages_to_responses_input, convert_tools_chat_to_responses
-from chatmock.services.model_registry import get_instructions_for_model, normalize_model_name
-from chatmock.services.reasoning import (
+from gptmock.core.constants import CHATGPT_RESPONSES_URL
+from gptmock.core.logging import log_json
+from gptmock.core.settings import Settings
+from gptmock.infra.auth import get_effective_chatgpt_auth
+from gptmock.infra.sse import sse_translate_chat, sse_translate_text
+from gptmock.infra.session import ensure_session_id
+from gptmock.schemas.messages import convert_chat_messages_to_responses_input, convert_tools_chat_to_responses
+from gptmock.services.model_registry import get_instructions_for_model, normalize_model_name
+from gptmock.services.reasoning import (
     allowed_efforts_for_model,
     apply_reasoning_to_message,
     build_reasoning_param,
@@ -316,9 +316,9 @@ async def process_chat_completion(
     access_token, account_id = await get_effective_chatgpt_auth()
     if not access_token or not account_id:
         raise ChatCompletionError(
-            "Missing ChatGPT credentials. Run 'python3 chatmock.py login' first.",
+            "Missing ChatGPT credentials. Run 'python3 gptmock.py login' first.",
             status_code=401,
-            error_data={"error": {"message": "Missing ChatGPT credentials. Run 'python3 chatmock.py login' first."}},
+            error_data={"error": {"message": "Missing ChatGPT credentials. Run 'python3 gptmock.py login' first."}},
         )
 
     # 10. Get or create session ID
@@ -581,9 +581,9 @@ async def process_text_completion(
     access_token, account_id = await get_effective_chatgpt_auth()
     if not access_token or not account_id:
         raise ChatCompletionError(
-            "Missing ChatGPT credentials. Run 'python3 chatmock.py login' first.",
+            "Missing ChatGPT credentials. Run 'python3 gptmock.py login' first.",
             status_code=401,
-            error_data={"error": {"message": "Missing ChatGPT credentials. Run 'python3 chatmock.py login' first."}},
+            error_data={"error": {"message": "Missing ChatGPT credentials. Run 'python3 gptmock.py login' first."}},
         )
 
     # 7. Get session ID

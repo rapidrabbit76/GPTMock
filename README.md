@@ -1,11 +1,11 @@
-# ChatMock (FastAPI)
+# GPTMock
 
-> **This is a fork of [RayBytes/ChatMock](https://github.com/RayBytes/ChatMock).**
+> **This is a fork of [RayBytes/chatmock](https://github.com/RayBytes/chatmock).**
 > The original Flask + synchronous `requests` stack has been replaced with **FastAPI + async `httpx`**, a layered architecture (router / service / infra), `pydantic-settings` configuration, and `uv` as the build system.
 
 **OpenAI & Ollama compatible API powered by your ChatGPT account.**
 
-ChatMock runs a local server that proxies requests to the ChatGPT Codex backend, exposing an OpenAI/Ollama compatible API. Use GPT-5, GPT-5-Codex, and other models directly from your ChatGPT Plus/Pro subscription — no API key required.
+gptmock runs a local server that proxies requests to the ChatGPT Codex backend, exposing an OpenAI/Ollama compatible API. Use GPT-5, GPT-5-Codex, and other models directly from your ChatGPT Plus/Pro subscription — no API key required.
 
 ## Requirements
 
@@ -17,20 +17,20 @@ ChatMock runs a local server that proxies requests to the ChatGPT Codex backend,
 
 ## Quick Start (uvx)
 
-The fastest way to run ChatMock. No clone, no install — just `uvx`.
+The fastest way to run gptmock. No clone, no install — just `uvx`.
 
 ### 1. Login
 
 ```bash
-uvx --from "git+https://github.com/rapidrabbit76/ChatMockFastAPI" chatmock login
+uvx --from "git+https://github.com/rapidrabbit76/gptmock" gptmock login
 ```
 
-A browser window will open for ChatGPT OAuth. After login, tokens are saved to `~/.config/chatmock/auth.json`.
+A browser window will open for ChatGPT OAuth. After login, tokens are saved to `~/.config/gptmock/auth.json`.
 
 ### 2. Start the server
 
 ```bash
-uvx --from "git+https://github.com/rapidrabbit76/ChatMockFastAPI" chatmock serve
+uvx --from "git+https://github.com/rapidrabbit76/gptmock" gptmock serve
 ```
 
 The server starts at `http://127.0.0.1:8000`. Use `http://127.0.0.1:8000/v1` as your OpenAI base URL.
@@ -38,17 +38,17 @@ The server starts at `http://127.0.0.1:8000`. Use `http://127.0.0.1:8000/v1` as 
 ### 3. Verify
 
 ```bash
-uvx --from "git+https://github.com/rapidrabbit76/ChatMockFastAPI" chatmock info
+uvx --from "git+https://github.com/rapidrabbit76/gptmock" gptmock info
 ```
 
 ### Tip: Shell Alias
 
 ```bash
-alias chatmock='uvx --from "git+https://github.com/rapidrabbit76/ChatMockFastAPI" chatmock'
+alias gptmock='uvx --from "git+https://github.com/rapidrabbit76/gptmock" gptmock'
 
-chatmock login
-chatmock serve --port 9000
-chatmock info
+gptmock login
+gptmock serve --port 9000
+gptmock info
 ```
 
 ---
@@ -58,8 +58,8 @@ chatmock info
 ### 1. Setup
 
 ```bash
-git clone https://github.com/rapidrabbit76/ChatMockFastAPI.git
-cd ChatMockFastAPI
+git clone https://github.com/rapidrabbit76/gptmock.git
+cd gptmock
 cp .env.example .env
 docker compose build
 ```
@@ -67,7 +67,7 @@ docker compose build
 ### 2. Login
 
 ```bash
-docker compose run --rm --service-ports chatmock-login login
+docker compose run --rm --service-ports login login
 ```
 
 A URL will be printed. Open it in your browser and complete the OAuth flow. If your browser can't reach the container, copy the full redirect URL from the browser address bar and paste it into the terminal.
@@ -75,7 +75,7 @@ A URL will be printed. Open it in your browser and complete the OAuth flow. If y
 ### 3. Start the server
 
 ```bash
-docker compose up -d chatmock
+docker compose up -d serve
 ```
 
 ### 4. Verify
@@ -90,13 +90,13 @@ Configure via `.env` file or docker-compose environment:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CHATMOCK_PORT` | `8000` | Server port |
-| `CHATMOCK_VERBOSE` | `false` | Enable request/response logging |
-| `CHATMOCK_REASONING_EFFORT` | `medium` | `minimal` / `low` / `medium` / `high` / `xhigh` |
-| `CHATMOCK_REASONING_SUMMARY` | `auto` | `auto` / `concise` / `detailed` / `none` |
-| `CHATMOCK_REASONING_COMPAT` | `think-tags` | `think-tags` / `o3` / `legacy` |
-| `CHATMOCK_EXPOSE_REASONING_MODELS` | `false` | Expose reasoning levels as separate models |
-| `CHATMOCK_DEFAULT_WEB_SEARCH` | `false` | Enable web search tool by default |
+| `gptmock_PORT` | `8000` | Server port |
+| `gptmock_VERBOSE` | `false` | Enable request/response logging |
+| `gptmock_REASONING_EFFORT` | `medium` | `minimal` / `low` / `medium` / `high` / `xhigh` |
+| `gptmock_REASONING_SUMMARY` | `auto` | `auto` / `concise` / `detailed` / `none` |
+| `gptmock_REASONING_COMPAT` | `think-tags` | `think-tags` / `o3` / `legacy` |
+| `gptmock_EXPOSE_REASONING_MODELS` | `false` | Expose reasoning levels as separate models |
+| `gptmock_DEFAULT_WEB_SEARCH` | `false` | Enable web search tool by default |
 
 ---
 
@@ -109,7 +109,7 @@ from openai import OpenAI
 
 client = OpenAI(
     base_url="http://127.0.0.1:8000/v1",
-    api_key="anything"  # ignored by ChatMock
+    api_key="anything"  # ignored by gptmock
 )
 
 resp = client.chat.completions.create(
@@ -192,7 +192,7 @@ curl http://127.0.0.1:8000/v1/chat/completions \
 ## Server Options
 
 ```
-chatmock serve [OPTIONS]
+gptmock serve [OPTIONS]
 ```
 
 | Option | Default | Description |
@@ -216,8 +216,8 @@ chatmock serve [OPTIONS]
 
 ## Credits
 
-- Original project: [RayBytes/ChatMock](https://github.com/RayBytes/ChatMock)
-- This fork: [rapidrabbit76/ChatMockFastAPI](https://github.com/rapidrabbit76/ChatMockFastAPI)
+- Original project: [RayBytes/gptmock](https://github.com/RayBytes/gptmock)
+- This fork: [rapidrabbit76/gptmockFastAPI](https://github.com/rapidrabbit76/gptmockFastAPI)
 
   <p><b>OpenAI & Ollama compatible API powered by your ChatGPT plan.</b></p>
   <p>Use your ChatGPT Plus/Pro account to call OpenAI models from code or alternate chat UIs.</p>
@@ -226,19 +226,19 @@ chatmock serve [OPTIONS]
 
 ## What It Does
 
-ChatMock runs a local server that creates an OpenAI/Ollama compatible API, and requests are then fulfilled using your authenticated ChatGPT login with the oauth client of Codex, OpenAI's coding CLI tool. This allows you to use GPT-5, GPT-5-Codex, and other models right through your OpenAI account, without requiring an api key. You are then able to use it in other chat apps or other coding tools. <br>
+gptmock runs a local server that creates an OpenAI/Ollama compatible API, and requests are then fulfilled using your authenticated ChatGPT login with the oauth client of Codex, OpenAI's coding CLI tool. This allows you to use GPT-5, GPT-5-Codex, and other models right through your OpenAI account, without requiring an api key. You are then able to use it in other chat apps or other coding tools. <br>
 This does require a paid ChatGPT account.
 
-> **Fork note:** This fork migrates the original [RayBytes/ChatMock](https://github.com/RayBytes/ChatMock) from Flask + synchronous `requests` to **FastAPI + async `httpx`**, adds a layered architecture (router / service / infra), manages configuration via `pydantic-settings`, and uses `uv` as the build system. It also adds the OpenAI Responses API endpoint (`POST /v1/responses`) and structured output (`response_format`) support.
+> **Fork note:** This fork migrates the original [RayBytes/gptmock](https://github.com/RayBytes/gptmock) from Flask + synchronous `requests` to **FastAPI + async `httpx`**, adds a layered architecture (router / service / infra), manages configuration via `pydantic-settings`, and uses `uv` as the build system. It also adds the OpenAI Responses API endpoint (`POST /v1/responses`) and structured output (`response_format`) support.
 
 ## Quickstart
 
 ### Homebrew (macOS)
 
-Install ChatMock as a command-line tool using [Homebrew](https://brew.sh/):
+Install gptmock as a command-line tool using [Homebrew](https://brew.sh/):
 ```
-brew tap RayBytes/chatmock
-brew install chatmock
+brew tap RayBytes/gptmock
+brew install gptmock
 ```
 
 ### Python
@@ -248,14 +248,14 @@ Clone or download this repository, then cd into the project directory. Then foll
 
 1. Sign in with your ChatGPT account and follow the prompts
 ```bash
-python chatmock.py login
+python gptmock.py login
 ```
-You can make sure this worked by running `python chatmock.py info`
+You can make sure this worked by running `python gptmock.py info`
 
 2. After the login completes successfully, you can just simply start the local server
 
 ```bash
-python chatmock.py serve
+python gptmock.py serve
 ```
 Then, you can simply use the address and port as the baseURL as you require (http://127.0.0.1:8000 by default)
 
@@ -263,7 +263,7 @@ Then, you can simply use the address and port as the baseURL as you require (htt
 
 ### Docker
 
-Read [the docker instrunctions here](https://github.com/RayBytes/ChatMock/blob/main/DOCKER.md)
+Read [the docker instrunctions here](https://github.com/RayBytes/gptmock/blob/main/DOCKER.md)
 
 # Examples
 
@@ -362,7 +362,7 @@ If your preferred app doesn’t support selecting reasoning effort, or you just 
 
 ## Notes
 If you wish to have the fastest responses, I'd recommend setting `--reasoning-effort` to low, and `--reasoning-summary` to none. <br>
-All parameters and choices can be seen by sending `python chatmock.py serve --h`<br>
+All parameters and choices can be seen by sending `python gptmock.py serve --h`<br>
 The context size of this route is also larger than what you get access to in the regular ChatGPT app.<br>
 
 When the model returns a thinking summary, the model will send back thinking tags to make it compatible with chat apps. **If you don't like this behavior, you can instead set `--reasoning-compat` to legacy, and reasoning will be set in the reasoning tag instead of being returned in the actual response text.**
@@ -370,6 +370,6 @@ When the model returns a thinking summary, the model will send back thinking tag
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=RayBytes/ChatMock&type=Timeline)](https://www.star-history.com/#RayBytes/ChatMock&Timeline)
+[![Star History Chart](https://api.star-history.com/svg?repos=RayBytes/gptmock&type=Timeline)](https://www.star-history.com/#RayBytes/gptmock&Timeline)
 
 

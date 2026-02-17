@@ -30,7 +30,7 @@ def _read_prompt_text(filename: str) -> str | None:
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_prefix="CHATMOCK_",
+        env_prefix="gptmock_",
         env_file=".env",
         case_sensitive=False,
     )

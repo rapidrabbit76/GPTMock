@@ -11,8 +11,8 @@ from typing import Any, Dict, Optional, Tuple
 
 import httpx
 
-from chatmock.core.constants import CLIENT_ID_DEFAULT, OAUTH_TOKEN_URL
-from chatmock.core.models import PkceCodes
+from gptmock.core.constants import CLIENT_ID_DEFAULT, OAUTH_TOKEN_URL
+from gptmock.core.models import PkceCodes
 
 
 def eprint(*args, **kwargs) -> None:
@@ -20,18 +20,18 @@ def eprint(*args, **kwargs) -> None:
 
 
 def get_home_dir() -> str:
-    home = os.getenv("CHATMOCK_HOME") or os.getenv("CHATGPT_LOCAL_HOME") or os.getenv("CODEX_HOME")
+    home = os.getenv("gptmock_HOME") or os.getenv("CHATGPT_LOCAL_HOME") or os.getenv("CODEX_HOME")
     if not home:
-        home = os.path.expanduser("~/.config/chatmock")
+        home = os.path.expanduser("~/.config/gptmock")
     return home
 
 
 def read_auth_file() -> Dict[str, Any] | None:
     for base in [
-        os.getenv("CHATMOCK_HOME"),
+        os.getenv("gptmock_HOME"),
         os.getenv("CHATGPT_LOCAL_HOME"),
         os.getenv("CODEX_HOME"),
-        os.path.expanduser("~/.config/chatmock"),
+        os.path.expanduser("~/.config/gptmock"),
         os.path.expanduser("~/.chatgpt-local"),
         os.path.expanduser("~/.codex"),
     ]:

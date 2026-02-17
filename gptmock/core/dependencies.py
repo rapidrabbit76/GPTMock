@@ -11,5 +11,5 @@ def get_settings() -> Settings:
 
 
 def get_http_client():
-    from chatmock.app import get_http_client as _get_http_client
+    from gptmock.app import get_http_client as _get_http_client
     return _get_http_client()

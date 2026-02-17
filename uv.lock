@@ -83,43 +83,6 @@ wheels = [
 ]
 
 [[package]]
-name = "chatmock"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "certifi" },
-    { name = "click" },
-    { name = "fastapi" },
-    { name = "httpx" },
-    { name = "idna" },
-    { name = "langchain-openai" },
-    { name = "openai" },
-    { name = "pydantic-settings" },
-    { name = "uvicorn", extra = ["standard"] },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "certifi", specifier = "==2025.8.3" },
-    { name = "click", specifier = "==8.2.1" },
-    { name = "fastapi", specifier = ">=0.104.0" },
-    { name = "httpx", specifier = ">=0.25.0" },
-    { name = "idna", specifier = "==3.10" },
-    { name = "langchain-openai", specifier = ">=1.1.9" },
-    { name = "openai", specifier = ">=2.21.0" },
-    { name = "pydantic-settings", specifier = ">=2.0.0" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.24.0" },
-]
-
-[package.metadata.requires-dev]
-dev = [{ name = "ruff", specifier = ">=0.15.1" }]
-
-[[package]]
 name = "click"
 version = "8.2.1"
 source = { registry = "https://pypi.org/simple" }
@@ -164,6 +127,43 @@ sdist = { url = "https://files.pythonhosted.org/packages/48/47/75f6bea02e797abff
 wheels = [
     { url = "https://files.pythonhosted.org/packages/9e/dd/d0ee25348ac58245ee9f90b6f3cbb666bf01f69be7e0911f9851bddbda16/fastapi-0.129.0-py3-none-any.whl", hash = "sha256:b4946880e48f462692b31c083be0432275cbfb6e2274566b1be91479cc1a84ec", size = 102950, upload-time = "2026-02-12T13:54:54.528Z" },
 ]
+
+[[package]]
+name = "gptmock"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "certifi" },
+    { name = "click" },
+    { name = "fastapi" },
+    { name = "httpx" },
+    { name = "idna" },
+    { name = "langchain-openai" },
+    { name = "openai" },
+    { name = "pydantic-settings" },
+    { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "certifi", specifier = "==2025.8.3" },
+    { name = "click", specifier = "==8.2.1" },
+    { name = "fastapi", specifier = ">=0.104.0" },
+    { name = "httpx", specifier = ">=0.25.0" },
+    { name = "idna", specifier = "==3.10" },
+    { name = "langchain-openai", specifier = ">=1.1.9" },
+    { name = "openai", specifier = ">=2.21.0" },
+    { name = "pydantic-settings", specifier = ">=2.0.0" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.24.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "ruff", specifier = ">=0.15.1" }]
 
 [[package]]
 name = "h11"

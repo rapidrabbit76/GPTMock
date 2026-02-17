@@ -8,12 +8,12 @@ import httpx
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from chatmock.core.dependencies import get_settings
-from chatmock.core.logging import log_json
-from chatmock.core.settings import Settings
-from chatmock.schemas.transform import convert_ollama_messages, normalize_ollama_tools
-from chatmock.services.chat import ChatCompletionError, process_chat_completion
-from chatmock.services.model_registry import OLLAMA_FAKE_EVAL, get_ollama_models
+from gptmock.core.dependencies import get_settings
+from gptmock.core.logging import log_json
+from gptmock.core.settings import Settings
+from gptmock.schemas.transform import convert_ollama_messages, normalize_ollama_tools
+from gptmock.services.chat import ChatCompletionError, process_chat_completion
+from gptmock.services.model_registry import OLLAMA_FAKE_EVAL, get_ollama_models
 
 router = APIRouter()
 
@@ -177,7 +177,7 @@ async def ollama_chat(
     if parallel_tool_calls:
         openai_payload["parallel_tool_calls"] = parallel_tool_calls
     
-    # Handle responses_tools (web_search) via ChatMock extension fields
+    # Handle responses_tools (web_search) via gptmock extension fields
     responses_tools_payload = ollama_payload.get("responses_tools") if isinstance(ollama_payload.get("responses_tools"), list) else []
     if responses_tools_payload:
         openai_payload["responses_tools"] = responses_tools_payload

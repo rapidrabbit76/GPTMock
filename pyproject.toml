@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "chatmock"
+name = "gptmock"
 version = "0.1.0"
 requires-python = ">=3.13"
 dependencies = [
@@ -12,23 +12,23 @@ dependencies = [
     "fastapi>=0.104.0",
     "httpx>=0.25.0",
     "idna==3.10",
-    "langchain-openai>=1.1.9",
     "openai>=2.21.0",
     "pydantic-settings>=2.0.0",
     "uvicorn[standard]>=0.24.0",
 ]
 
 [project.scripts]
-chatmock = "chatmock.cli:main"
+gptmock = "gptmock.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["chatmock"]
+packages = ["gptmock"]
 
 [tool.hatch.build.targets.wheel.force-include]
-"chatmock/prompt.md" = "chatmock/prompt.md"
-"chatmock/prompt_gpt5_codex.md" = "chatmock/prompt_gpt5_codex.md"
+"gptmock/prompt.md" = "gptmock/prompt.md"
+"gptmock/prompt_gpt5_codex.md" = "gptmock/prompt_gpt5_codex.md"
 
 [dependency-groups]
 dev = [
     "ruff>=0.15.1",
+    "langchain-openai>=1.1.9",
 ]

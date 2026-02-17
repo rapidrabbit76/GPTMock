@@ -8,10 +8,10 @@ import sys
 import webbrowser
 from datetime import datetime
 
-from chatmock.core.constants import CLIENT_ID_DEFAULT
-from chatmock.infra.limits import RateLimitWindow, compute_reset_at, load_rate_limit_snapshot
-from chatmock.infra.oauth import OAuthHTTPServer, OAuthHandler, REQUIRED_PORT, URL_BASE
-from chatmock.infra.auth import eprint, get_home_dir, parse_jwt_claims, read_auth_file
+from gptmock.core.constants import CLIENT_ID_DEFAULT
+from gptmock.infra.limits import RateLimitWindow, compute_reset_at, load_rate_limit_snapshot
+from gptmock.infra.oauth import OAuthHTTPServer, OAuthHandler, REQUIRED_PORT, URL_BASE
+from gptmock.infra.auth import eprint, get_home_dir, parse_jwt_claims, read_auth_file
 
 
 _STATUS_LIMIT_BAR_SEGMENTS = 30
@@ -136,7 +136,7 @@ def _print_usage_limits_block() -> None:
     print("📊 Usage Limits")
     
     if stored is None:
-        print("  No usage data available yet. Send a request through ChatMock first.")
+        print("  No usage data available yet. Send a request through gptmock first.")
         print()
         return
 
@@ -229,7 +229,7 @@ _UTC = __import__("datetime").timezone.utc
 def cmd_info(auth: dict | None) -> int:
     if not isinstance(auth, dict):
         print("  Not signed in")
-        print(f"  Run: uv run python chatmock.py login")
+        print(f"  Run: uv run python gptmock.py login")
         print()
         _print_usage_limits_block()
         return 0
@@ -242,7 +242,7 @@ def cmd_info(auth: dict | None) -> int:
 
     if not access_token and not id_token:
         print("  Not signed in")
-        print(f"  Run: uv run python chatmock.py login")
+        print(f"  Run: uv run python gptmock.py login")
         print()
         _print_usage_limits_block()
         return 0
@@ -318,7 +318,7 @@ def cmd_info(auth: dict | None) -> int:
     if access_expired:
         print()
         print(f"\033[93m  Access token expired. It will auto-refresh on next server request.\033[0m")
-        print(f"\033[93m  Or re-login: uv run python chatmock.py login\033[0m")
+        print(f"\033[93m  Or re-login: uv run python gptmock.py login\033[0m")
     print()
 
     print(f"Storage")
@@ -424,28 +424,28 @@ def cmd_serve(
         eprint("Login successful. Starting server...\n")
 
     if verbose:
-        os.environ["CHATMOCK_VERBOSE"] = "true"
+        os.environ["gptmock_VERBOSE"] = "true"
     if verbose_obfuscation:
-        os.environ["CHATMOCK_VERBOSE_OBFUSCATION"] = "true"
+        os.environ["gptmock_VERBOSE_OBFUSCATION"] = "true"
     if reasoning_effort:
-        os.environ["CHATMOCK_REASONING_EFFORT"] = reasoning_effort
+        os.environ["gptmock_REASONING_EFFORT"] = reasoning_effort
     if reasoning_summary:
-        os.environ["CHATMOCK_REASONING_SUMMARY"] = reasoning_summary
+        os.environ["gptmock_REASONING_SUMMARY"] = reasoning_summary
     if reasoning_compat:
-        os.environ["CHATMOCK_REASONING_COMPAT"] = reasoning_compat
+        os.environ["gptmock_REASONING_COMPAT"] = reasoning_compat
     if debug_model:
-        os.environ["CHATMOCK_DEBUG_MODEL"] = debug_model
+        os.environ["gptmock_DEBUG_MODEL"] = debug_model
     if expose_reasoning_models:
-        os.environ["CHATMOCK_EXPOSE_REASONING_MODELS"] = "true"
+        os.environ["gptmock_EXPOSE_REASONING_MODELS"] = "true"
     if default_web_search:
-        os.environ["CHATMOCK_DEFAULT_WEB_SEARCH"] = "true"
+        os.environ["gptmock_DEFAULT_WEB_SEARCH"] = "true"
     
-    os.environ["CHATMOCK_HOST"] = host
-    os.environ["CHATMOCK_PORT"] = str(port)
+    os.environ["gptmock_HOST"] = host
+    os.environ["gptmock_PORT"] = str(port)
     
     import uvicorn
     uvicorn.run(
-        "chatmock.app:create_app",
+        "gptmock.app:create_app",
         factory=True,
         host=host,
         port=port,

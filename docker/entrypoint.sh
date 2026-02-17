@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-export CHATMOCK_HOME="${CHATMOCK_HOME:-/data}"
+export gptmock_HOME="${gptmock_HOME:-/data}"
 export CHATGPT_LOCAL_HOME="${CHATGPT_LOCAL_HOME:-/data}"
 
 cmd="${1:-serve}"
@@ -29,14 +29,14 @@ if [[ "$cmd" == "serve" ]]; then
     ARGS+=("$@")
   fi
 
-  exec python chatmock.py "${ARGS[@]}"
+  exec python gptmock.py "${ARGS[@]}"
 elif [[ "$cmd" == "login" ]]; then
   ARGS=(login --no-browser)
   if bool "${VERBOSE:-}" || bool "${CHATGPT_LOCAL_VERBOSE:-}"; then
     ARGS+=(--verbose)
   fi
 
-  exec python chatmock.py "${ARGS[@]}"
+  exec python gptmock.py "${ARGS[@]}"
 else
   exec "$cmd" "$@"
 fi

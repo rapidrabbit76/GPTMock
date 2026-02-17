@@ -13,9 +13,9 @@ from typing import Any, Dict, Tuple
 
 import certifi
 
-from chatmock.core.constants import OAUTH_ISSUER_DEFAULT
-from chatmock.core.models import AuthBundle, PkceCodes, TokenData
-from chatmock.infra.auth import eprint, generate_pkce, parse_jwt_claims, write_auth_file
+from gptmock.core.constants import OAUTH_ISSUER_DEFAULT
+from gptmock.core.models import AuthBundle, PkceCodes, TokenData
+from gptmock.infra.auth import eprint, generate_pkce, parse_jwt_claims, write_auth_file
 
 
 REQUIRED_PORT = 1455
@@ -32,7 +32,7 @@ LOGIN_SUCCESS_HTML = """<!DOCTYPE html>
   <body>
     <div style=\"max-width: 640px; margin: 80px auto; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;\"> 
       <h1>Login successful</h1>
-      <p>You can now close this window and return to the terminal and run <code>python3 chatmock.py serve</code> to start the server.</p>
+      <p>You can now close this window and return to the terminal and run <code>python3 gptmock.py serve</code> to start the server.</p>
     </div>
   </body>
   </html>

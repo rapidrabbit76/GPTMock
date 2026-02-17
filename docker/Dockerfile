@@ -15,8 +15,8 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
 # Copy application code
-COPY chatmock/ chatmock/
-COPY chatmock.py prompt.md prompt_gpt5_codex.md ./
+COPY gptmock/ gptmock/
+COPY gptmock.py prompt.md prompt_gpt5_codex.md ./
 
 # Install the project itself
 RUN uv sync --frozen --no-dev

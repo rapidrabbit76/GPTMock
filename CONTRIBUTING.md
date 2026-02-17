@@ -1,4 +1,4 @@
-# Contributing to ChatMock
+# Contributing to gptmock
 
 We welcome thoughtful improvements. This guide calls out the expectations that keep reviews quick and the project stable.
 

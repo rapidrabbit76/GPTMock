@@ -7,12 +7,12 @@ import httpx
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from chatmock.core.dependencies import get_settings
-from chatmock.core.logging import log_json
-from chatmock.core.settings import Settings
-from chatmock.services.chat import ChatCompletionError, process_chat_completion, process_text_completion
-from chatmock.services.model_registry import get_openai_models
-from chatmock.services.responses import process_responses_api
+from gptmock.core.dependencies import get_settings
+from gptmock.core.logging import log_json
+from gptmock.core.settings import Settings
+from gptmock.services.chat import ChatCompletionError, process_chat_completion, process_text_completion
+from gptmock.services.model_registry import get_openai_models
+from gptmock.services.responses import process_responses_api
 
 
 router = APIRouter()

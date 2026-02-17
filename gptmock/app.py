@@ -7,10 +7,10 @@ import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from chatmock.core.settings import Settings
-from chatmock.routers.health import router as health_router
-from chatmock.routers.ollama import router as ollama_router
-from chatmock.routers.openai import router as openai_router
+from gptmock.core.settings import Settings
+from gptmock.routers.health import router as health_router
+from gptmock.routers.ollama import router as ollama_router
+from gptmock.routers.openai import router as openai_router
 
 
 # Global httpx client (managed by lifespan)
@@ -56,12 +56,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         Configured FastAPI application.
     """
     if settings is None:
-        from chatmock.core.dependencies import get_settings
+        from gptmock.core.dependencies import get_settings
         settings = get_settings()
     
     # Create FastAPI app with lifespan
     app = FastAPI(
-        title="ChatMock",
+        title="gptmock",
         description="OpenAI & Ollama compatible API powered by ChatGPT",
         version="1.0.0",
         lifespan=lifespan,

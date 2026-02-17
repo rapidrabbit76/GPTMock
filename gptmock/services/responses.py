@@ -6,14 +6,14 @@ from typing import Any, AsyncGenerator, Dict, List
 
 import httpx
 
-from chatmock.core.constants import CHATGPT_RESPONSES_URL
-from chatmock.core.logging import log_json
-from chatmock.core.settings import Settings
-from chatmock.infra.auth import get_effective_chatgpt_auth
-from chatmock.infra.session import ensure_session_id
-from chatmock.services.chat import ChatCompletionError
-from chatmock.services.model_registry import get_instructions_for_model, normalize_model_name
-from chatmock.services.reasoning import allowed_efforts_for_model, build_reasoning_param
+from gptmock.core.constants import CHATGPT_RESPONSES_URL
+from gptmock.core.logging import log_json
+from gptmock.core.settings import Settings
+from gptmock.infra.auth import get_effective_chatgpt_auth
+from gptmock.infra.session import ensure_session_id
+from gptmock.services.chat import ChatCompletionError
+from gptmock.services.model_registry import get_instructions_for_model, normalize_model_name
+from gptmock.services.reasoning import allowed_efforts_for_model, build_reasoning_param
 
 
 def _merge_instructions(base_instructions: str | None, requested_instructions: Any) -> str | None:
@@ -307,9 +307,9 @@ async def process_responses_api(
     access_token, account_id = await get_effective_chatgpt_auth()
     if not access_token or not account_id:
         raise ChatCompletionError(
-            "Missing ChatGPT credentials. Run 'python3 chatmock.py login' first.",
+            "Missing ChatGPT credentials. Run 'python3 gptmock.py login' first.",
             status_code=401,
-            error_data={"error": {"message": "Missing ChatGPT credentials. Run 'python3 chatmock.py login' first."}},
+            error_data={"error": {"message": "Missing ChatGPT credentials. Run 'python3 gptmock.py login' first."}},
         )
 
     session_id = ensure_session_id(instructions, input_items, client_session_id)

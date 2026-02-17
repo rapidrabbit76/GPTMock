@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping, Optional
 
-from chatmock.infra.auth import get_home_dir
+from gptmock.infra.auth import get_home_dir
 
 _PRIMARY_USED = "x-codex-primary-used-percent"
 _PRIMARY_WINDOW = "x-codex-primary-window-minutes"

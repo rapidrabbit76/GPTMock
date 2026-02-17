@@ -1,18 +1,18 @@
 services:
-  chatmock:
+  serve:
     build:
       context: .
       dockerfile: docker/Dockerfile
-    image: chatmock:latest
-    container_name: chatmock
+    image: gptmock:latest
+    container_name: gptmock
     command: ["serve"]
     env_file: .env
     environment:
-      - CHATMOCK_HOME=/data
+      - gptmock_HOME=/data
     ports:
       - "8000:8000"
     volumes:
-      - chatmock_data:/data
+      - gptmock_data:/data
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health').status==200 else 1)\" "]
       interval: 10s
@@ -20,17 +20,17 @@ services:
       retries: 5
       start_period: 5s
 
-  chatmock-login:
-    image: chatmock:latest
+  login:
+    image: gptmock:latest
     profiles: ["login"]
     command: ["login"]
     environment:
-      - CHATMOCK_HOME=/data
+      - gptmock_HOME=/data
       - CHATGPT_LOCAL_LOGIN_BIND=0.0.0.0
     volumes:
-      - chatmock_data:/data
+      - gptmock_data:/data
     ports:
       - "1455:1455"
 
 volumes:
-  chatmock_data:
+  gptmock_data:
