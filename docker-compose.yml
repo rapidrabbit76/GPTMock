@@ -1,49 +1,36 @@
+x-gptmock-common: &gptmock-common
+  image: ys2lee/gptmock:latest
+  environment:
+    - GPTMOCK_HOME=/data
+    - CHATGPT_LOCAL_LOGIN_BIND=0.0.0.0
+  volumes:
+    - ./volumes/gptmock:/data
+
 services:
   serve:
+    <<: *gptmock-common
     build:
       context: .
       dockerfile: docker/Dockerfile
-    image: gptmock:latest
     container_name: gptmock
-    command: ["serve"]
+    command: [ "serve", "--verbose" ]
     env_file: .env
-    environment:
-      - GPTMOCK_HOME=/data
     ports:
       - "8000:8000"
       - "1455:1455"
-    volumes:
-      - ./volumes/gptmock:/data
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health').status==200 else 1)\" "]
+      test: [ "CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health').status==200 else 1)\"" ]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 5s
 
   login:
-    image: gptmock:latest
-    profiles: ["login"]
-    command: ["login"]
-    environment:
-      - GPTMOCK_HOME=/data
-      - CHATGPT_LOCAL_LOGIN_BIND=0.0.0.0
-    volumes:
-      - ./volumes/gptmock:/data
+    <<: *gptmock-common
+    command: [ "login" ]
     ports:
       - "1455:1455"
 
   info:
-    image: gptmock:latest
-    profiles: ["info"]
-    command: ["info"]
-    environment:
-      - GPTMOCK_HOME=/data
-      - CHATGPT_LOCAL_LOGIN_BIND=0.0.0.0
-    volumes:
-      - ./volumes/gptmock:/data
-    ports:
-      - "1455:1455"
-
-volumes:
-  data:
+    <<: *gptmock-common
+    command: [ "info" ]
