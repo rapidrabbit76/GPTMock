@@ -40,15 +40,14 @@ def normalize_model_name(name: str | None, debug_model: str | None = None) -> st
         "gpt5.3-codex": "gpt-5.3-codex",
         "gpt-5.3-codex": "gpt-5.3-codex",
         "gpt-5.3-codex-latest": "gpt-5.3-codex",
+        "gpt5.3-codex-spark": "gpt-5.3-codex-spark",
+        "gpt-5.3-codex-spark": "gpt-5.3-codex-spark",
+        "gpt-5.3-codex-spark-latest": "gpt-5.3-codex-spark",
         "gpt5-codex": "gpt-5-codex",
         "gpt-5-codex": "gpt-5-codex",
         "gpt-5-codex-latest": "gpt-5-codex",
         "gpt-5.1-codex": "gpt-5.1-codex",
         "gpt-5.1-codex-max": "gpt-5.1-codex-max",
-        "codex": "codex-mini-latest",
-        "codex-mini": "codex-mini-latest",
-        "codex-mini-latest": "codex-mini-latest",
-        "gpt-5.1-codex-mini": "gpt-5.1-codex-mini",
     }
     return mapping.get(base, base)
 
@@ -72,10 +71,9 @@ def get_model_list(
         ("gpt-5-codex", ["high", "medium", "low"]),
         ("gpt-5.2-codex", ["xhigh", "high", "medium", "low"]),
         ("gpt-5.3-codex", ["xhigh", "high", "medium", "low"]),
+        ("gpt-5.3-codex-spark", ["xhigh", "high", "medium", "low"]),
         ("gpt-5.1-codex", ["high", "medium", "low"]),
         ("gpt-5.1-codex-max", ["xhigh", "high", "medium", "low"]),
-        ("gpt-5.1-codex-mini", []),
-        ("codex-mini", []),
     ]
     
     model_ids: List[str] = []
