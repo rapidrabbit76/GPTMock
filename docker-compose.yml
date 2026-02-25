@@ -1,5 +1,5 @@
 x-gptmock-common: &gptmock-common
-  image: ys2lee/gptmock:latest
+  image: rapidrabbit76/gptmock:latest
   environment:
     - GPTMOCK_HOME=/data
     - CHATGPT_LOCAL_LOGIN_BIND=0.0.0.0
