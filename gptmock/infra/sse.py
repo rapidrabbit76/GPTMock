@@ -360,8 +360,19 @@ async def sse_translate_chat(
                             ],
                         }
                         yield f"data: {json.dumps(chunk)}\n\n".encode("utf-8")
-            elif isinstance(kind, str) and kind.endswith(".done"):
-                pass
+            elif kind == "response.content_part.done":
+                part = evt.get("part")
+                if isinstance(part, dict) and part.get("type") == "output_text":
+                    part_annotations = part.get("annotations")
+                    if isinstance(part_annotations, list) and part_annotations:
+                        ann_chunk = {
+                            "id": response_id,
+                            "object": "chat.completion.chunk",
+                            "created": created,
+                            "model": model,
+                            "choices": [{"index": 0, "delta": {"annotations": part_annotations}, "finish_reason": None}],
+                        }
+                        yield f"data: {json.dumps(ann_chunk)}\n\n".encode("utf-8")
             elif kind == "response.output_text.done":
                 chunk = {
                     "id": response_id,
@@ -372,6 +383,8 @@ async def sse_translate_chat(
                 }
                 yield f"data: {json.dumps(chunk)}\n\n".encode("utf-8")
                 sent_stop_chunk = True
+            elif isinstance(kind, str) and kind.endswith(".done"):
+                pass
             elif kind == "response.failed":
                 err = evt.get("response", {}).get("error", {}).get("message", "response.failed")
                 chunk = {"error": {"message": err}}

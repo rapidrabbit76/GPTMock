@@ -427,6 +427,7 @@ async def process_chat_completion(
         tool_calls: List[Dict[str, Any]] = []
         error_message: str | None = None
         usage_obj: Dict[str, int] | None = None
+        annotations: List[Dict[str, Any]] = []
 
         try:
             async for raw in upstream.aiter_lines():
@@ -472,6 +473,12 @@ async def process_chat_completion(
                                     "function": {"name": name, "arguments": args},
                                 }
                             )
+                elif kind == "response.content_part.done":
+                    part = evt.get("part")
+                    if isinstance(part, dict) and part.get("type") == "output_text":
+                        part_annotations = part.get("annotations")
+                        if isinstance(part_annotations, list):
+                            annotations.extend(part_annotations)
                 elif kind == "response.failed":
                     error_message = evt.get("response", {}).get("error", {}).get("message", "response.failed")
                 elif kind == "response.completed":
@@ -487,6 +494,8 @@ async def process_chat_completion(
             )
 
         message: Dict[str, Any] = {"role": "assistant", "content": full_text if full_text else None}
+        if annotations:
+            message["annotations"] = annotations
         if tool_calls:
             message["tool_calls"] = tool_calls
         if not _is_strict_json_text_format(text_format):
