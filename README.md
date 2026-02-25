@@ -148,19 +148,23 @@ curl http://127.0.0.1:8000/v1/chat/completions \
 
 ## Supported Models
 
-| Model | Reasoning Efforts |
-|-------|-------------------|
-| `gpt-5` | `minimal` / `low` / `medium` / `high` |
-| `gpt-5.1` | `low` / `medium` / `high` |
-| `gpt-5.2` | `low` / `medium` / `high` / `xhigh` |
-| `gpt-5-codex` | `low` / `medium` / `high` |
-| `gpt-5.1-codex` | `low` / `medium` / `high` |
-| `gpt-5.1-codex-max` | `low` / `medium` / `high` / `xhigh` |
-| `gpt-5.1-codex-mini` | `low` / `medium` / `high` |
-| `gpt-5.2-codex` | `low` / `medium` / `high` / `xhigh` |
-| `gpt-5.3-codex` | `low` / `medium` / `high` / `xhigh` |
-| `codex-mini` | `low` / `medium` / `high` |
+| Model | Reasoning Efforts | Status |
+|-------|-------------------|--------|
+| `gpt-5` | `minimal` / `low` / `medium` / `high` | ✅ Supported |
+| `gpt-5.1` | `low` / `medium` / `high` | ✅ Supported |
+| `gpt-5.2` | `low` / `medium` / `high` / `xhigh` | ✅ Supported |
+| `gpt-5-codex` | `low` / `medium` / `high` | ✅ Supported |
+| `gpt-5.1-codex` | `low` / `medium` / `high` | ✅ Supported |
+| `gpt-5.1-codex-max` | `low` / `medium` / `high` / `xhigh` | ✅ Supported |
+| `gpt-5.2-codex` | `low` / `medium` / `high` / `xhigh` | ✅ Supported |
+| `gpt-5.3-codex` | `low` / `medium` / `high` / `xhigh` | ✅ Supported |
+| `gpt-5.3-codex-spark` | `low` / `medium` / `high` / `xhigh` | ✅ Supported |
 
+### Deprecated / Unsupported Models
+
+| Model | Reason |
+|-------|--------|
+| `codex-mini` / `gpt-5.1-codex-mini` | ❌ Discontinued by upstream — removed |
 ---
 
 ## API Endpoints
@@ -313,13 +317,15 @@ curl http://127.0.0.1:8000/v1/chat/completions \
 - `gpt-5.1`
 - `gpt-5.2`
 - `gpt-5-codex`
-- `gpt-5.2-codex`
 - `gpt-5.1-codex`
 - `gpt-5.1-codex-max`
-- `gpt-5.1-codex-mini`
+- `gpt-5.2-codex`
 - `gpt-5.3-codex`
-- `codex-mini`
+- `gpt-5.3-codex-spark`
 
+### Deprecated
+
+- ~~`codex-mini` / `gpt-5.1-codex-mini`~~ — discontinued by upstream
 # Customisation / Configuration
 
 ### Thinking effort
