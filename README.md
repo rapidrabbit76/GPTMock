@@ -164,7 +164,7 @@ curl http://127.0.0.1:8000/v1/chat/completions \
 
 | Model | Reason |
 |-------|--------|
-| `codex-mini` / `gpt-5.1-codex-mini` | ❌ Discontinued by upstream — removed |
+| `codex-mini` / `gpt-5.1-codex-mini` | ❌ Discontinued by Codex Backend — removed |
 ---
 
 ## API Endpoints
@@ -212,147 +212,18 @@ gptmock serve [OPTIONS]
 
 ---
 
-## Notes & Limits
+## Web Search
 
-- Requires an active, paid ChatGPT account.
-- Context length may be partially used by internal system instructions.
-- This project is not affiliated with OpenAI. Use responsibly and at your own risk.
+Use `--enable-web-search` to enable the web search tool by default for all requests. When enabled, the model decides autonomously whether a query needs a web search. You can also enable web search per-request without the server flag by passing the parameters below.
 
-## Credits
-
-- Original project: [RayBytes/chatmock](https://github.com/RayBytes/chatmock)
-- This fork: [rapidrabbit76/GPTMock](https://github.com/rapidrabbit76/GPTMock)
-
-  <p><b>OpenAI & Ollama compatible API powered by your ChatGPT plan.</b></p>
-  <p>Use your ChatGPT Plus/Pro account to call OpenAI models from code or alternate chat UIs.</p>
-  <br>
-
-</div>
-
-## What It Does
-
-gptmock runs a local server that creates an OpenAI/Ollama compatible API, and requests are then fulfilled using your authenticated ChatGPT login with the oauth client of Codex, OpenAI's coding CLI tool. This allows you to use GPT-5, GPT-5-Codex, and other models right through your OpenAI account, without requiring an api key. You are then able to use it in other chat apps or other coding tools. <br>
-This does require a paid ChatGPT account.
-
-> **Fork note:** This fork migrates the original [RayBytes/gptmock](https://github.com/RayBytes/gptmock) from Flask + synchronous `requests` to **FastAPI + async `httpx`**, adds a layered architecture (router / service / infra), manages configuration via `pydantic-settings`, and uses `uv` as the build system. It also adds the OpenAI Responses API endpoint (`POST /v1/responses`) and structured output (`response_format`) support.
-
-## Quickstart
-
-### Python
-
-If you wish to run this as a local Python server, you are also freely welcome to.
-
-Clone or download this repository, then cd into the project directory. Then follow the instrunctions listed below.
-
-1. Sign in with your ChatGPT account and follow the prompts
-
-```bash
-python gptmock.py login
-```
-
-You can make sure this worked by running `python gptmock.py info`
-
-1. After the login completes successfully, you can just simply start the local server
-
-```bash
-python gptmock.py serve
-```
-
-Then, you can simply use the address and port as the baseURL as you require (<http://127.0.0.1:8000> by default)
-
-**Reminder:** When setting a baseURL in other applications, make you sure you include /v1/ at the end of the URL if you're using this as a OpenAI compatible endpoint (e.g <http://127.0.0.1:8000/v1>)
-
-### Docker
-
-Read [the docker instrunctions here](https://github.com/RayBytes/gptmock/blob/main/DOCKER.md)
-
-# Examples
-
-### Python
-
-```python
-from openai import OpenAI
-
-client = OpenAI(
-    base_url="http://127.0.0.1:8000/v1",
-    api_key="key"  # ignored
-)
-
-resp = client.chat.completions.create(
-    model="gpt-5",
-    messages=[{"role": "user", "content": "hello world"}]
-)
-
-print(resp.choices[0].message.content)
-```
-
-### curl
-
-```bash
-curl http://127.0.0.1:8000/v1/chat/completions \
-  -H "Authorization: Bearer key" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "gpt-5",
-    "messages": [{"role":"user","content":"hello world"}]
-  }'
-```
-
-# What's supported
-
-- Tool/Function calling
-- Vision/Image understanding
-- Thinking summaries (through thinking tags)
-- Thinking effort
-
-## Notes & Limits
-
-- Requires an active, paid ChatGPT account.
-- Some context length might be taken up by internal instructions (but they dont seem to degrade the model)
-- Use responsibly and at your own risk. This project is not affiliated with OpenAI, and is a educational exercise.
-
-# Supported models
-
-- `gpt-5`
-- `gpt-5.1`
-- `gpt-5.2`
-- `gpt-5-codex`
-- `gpt-5.1-codex`
-- `gpt-5.1-codex-max`
-- `gpt-5.2-codex`
-- `gpt-5.3-codex`
-- `gpt-5.3-codex-spark`
-
-### Deprecated
-
-- ~~`codex-mini` / `gpt-5.1-codex-mini`~~ — discontinued by Codex Backend
-# Customisation / Configuration
-
-### Thinking effort
-
-- `--reasoning-effort` (choice of minimal,low,medium,high,xhigh)<br>
-GPT-5 has a configurable amount of "effort" it can put into thinking, which may cause it to take more time for a response to return, but may overall give a smarter answer. Applying this parameter after `serve` forces the server to use this reasoning effort by default, unless overrided by the API request with a different effort set. The default reasoning effort without setting this parameter is `medium`.<br>
-    The `gpt-5.1` family (including codex) supports `low`, `medium`, and `high` while `gpt-5.1-codex-max` adds `xhigh`. The `gpt-5.2` family (including codex) supports `low`, `medium`, `high`, and `xhigh`.
-
-### Thinking summaries
-
-- `--reasoning-summary` (choice of auto,concise,detailed,none)<br>
-Models like GPT-5 do not return raw thinking content, but instead return thinking summaries. These can also be customised by you.
-
-### Web Search
-
-- `--enable-web-search`
-
-Enables the web search tool by default for all requests. When enabled, the model decides autonomously whether a query needs a web search. You can also enable web search per-request without the server flag by passing the parameters below.
-
-#### Request Parameters
+### Request Parameters
 
 | Parameter | Values | Description |
 |-----------|--------|-------------|
 | `responses_tools` | `[{"type":"web_search"}]` | Enable web search for this request |
 | `responses_tool_choice` | `"auto"` / `"none"` | Let the model decide, or disable |
 
-#### Annotations (URL Citations)
+### Annotations (URL Citations)
 
 When web search is active, the model may return `annotations` containing source URLs. These are included automatically in responses:
 
@@ -415,7 +286,7 @@ data: {"choices": [{"delta": {}, "finish_reason": "stop"}]}
 }
 ```
 
-#### Example Request
+### Example Request
 
 ```bash
 curl http://127.0.0.1:8000/v1/chat/completions \
@@ -429,15 +300,18 @@ curl http://127.0.0.1:8000/v1/chat/completions \
   }'
 ```
 
-### Expose reasoning models
+---
 
-- `--expose-reasoning-models`<br>
-If your preferred app doesn’t support selecting reasoning effort, or you just want a simpler approach, this parameter exposes each reasoning level as a separate, queryable model. Each reasoning level also appears individually under ⁠/v1/models, so model pickers in your favorite chat apps will list all reasoning options as distinct models you can switch between.
+## Notes & Limits
 
-## Notes
+- Requires an active, paid ChatGPT account.
+- Context length may be partially used by internal system instructions.
+- For the fastest responses, set `--reasoning-effort` to `low` and `--reasoning-summary` to `none`.
+- The context size of this route is larger than what you get in the regular ChatGPT app.
+- When the model returns a thinking summary, it sends back thinking tags for compatibility with chat apps. Set `--reasoning-compat` to `legacy` to use the reasoning tag instead of inline text.
+- This project is not affiliated with OpenAI. Use responsibly and at your own risk.
 
-If you wish to have the fastest responses, I'd recommend setting `--reasoning-effort` to low, and `--reasoning-summary` to none. <br>
-All parameters and choices can be seen by sending `python gptmock.py serve --h`<br>
-The context size of this route is also larger than what you get access to in the regular ChatGPT app.<br>
+## Credits
 
-When the model returns a thinking summary, the model will send back thinking tags to make it compatible with chat apps. **If you don't like this behavior, you can instead set `--reasoning-compat` to legacy, and reasoning will be set in the reasoning tag instead of being returned in the actual response text.**
+- Original project: [RayBytes/chatmock](https://github.com/RayBytes/chatmock)
+- This fork: [rapidrabbit76/GPTMock](https://github.com/rapidrabbit76/GPTMock)
