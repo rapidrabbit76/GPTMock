@@ -48,6 +48,5 @@ jobs:
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/gptmock:latest
             ${{ secrets.DOCKERHUB_USERNAME }}/gptmock:${{ steps.version.outputs.version }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/gptmock:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

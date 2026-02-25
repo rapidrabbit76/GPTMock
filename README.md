@@ -22,7 +22,7 @@ The fastest way to run gptmock. No clone, no install — just `uvx`.
 ### 1. Login
 
 ```bash
-uvx --from "git+https://github.com/rapidrabbit76/GPTMock" gptmock login
+uvx gptmock login
 ```
 
 A browser window will open for ChatGPT OAuth. After login, tokens are saved to `~/.config/gptmock/auth.json`.
@@ -30,7 +30,7 @@ A browser window will open for ChatGPT OAuth. After login, tokens are saved to `
 ### 2. Start the server
 
 ```bash
-uvx --from "git+https://github.com/rapidrabbit76/GPTMock" gptmock serve
+uvx gptmock serve
 ```
 
 The server starts at `http://127.0.0.1:8000`. Use `http://127.0.0.1:8000/v1` as your OpenAI base URL.
@@ -38,30 +38,67 @@ The server starts at `http://127.0.0.1:8000`. Use `http://127.0.0.1:8000/v1` as 
 ### 3. Verify
 
 ```bash
-uvx --from "git+https://github.com/rapidrabbit76/GPTMock" gptmock info
+uvx gptmock info
 ```
 
 ### Tip: Shell Alias
 
 ```bash
-alias gptmock='uvx --from "git+https://github.com/rapidrabbit76/GPTMock" gptmock'
+alias gptmock='uvx gptmock'
 
 gptmock login
 gptmock serve --port 9000
 gptmock info
 ```
 
+> **Note:** To install directly from the GitHub repository instead of PyPI:
+> ```bash
+> uvx --from "git+https://github.com/rapidrabbit76/GPTMock" gptmock login
+> uvx --from "git+https://github.com/rapidrabbit76/GPTMock" gptmock serve
+> ```
+
 ---
 
 ## Quick Start (Docker)
 
-### 1. Setup
+No build required — pull the pre-built image and run.
 
-```bash
-git clone https://github.com/rapidrabbit76/GPTMock.git
-cd gptmock
-cp .env.example .env
-docker compose build
+### 1. Create `docker-compose.yml`
+
+```yaml
+services:
+  serve:
+    image: rapidrabbit76/gptmock:latest
+    container_name: gptmock
+    command: ["serve", "--verbose", "--host", "0.0.0.0"]
+    ports:
+      - "8000:8000"
+      - "1455:1455"
+    volumes:
+      - gptmock-data:/data
+    environment:
+      - GPTMOCK_HOME=/data
+      - CHATGPT_LOCAL_LOGIN_BIND=0.0.0.0
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health').status==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  login:
+    image: rapidrabbit76/gptmock:latest
+    command: ["login"]
+    ports:
+      - "1455:1455"
+    volumes:
+      - gptmock-data:/data
+    environment:
+      - GPTMOCK_HOME=/data
+      - CHATGPT_LOCAL_LOGIN_BIND=0.0.0.0
+
+volumes:
+  gptmock-data:
 ```
 
 ### 2. Login

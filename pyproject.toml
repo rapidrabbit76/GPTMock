@@ -4,8 +4,18 @@ build-backend = "hatchling.build"
 
 [project]
 name = "gptmock"
-version = "0.0.2"
+version = "2025.2.25"
 requires-python = ">=3.13"
+description = "OpenAI & Ollama compatible API powered by your ChatGPT account"
+readme = "README.md"
+license = "MIT"
+keywords = ["openai", "chatgpt", "gpt5", "proxy", "api", "ollama"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries",
+]
 dependencies = [
     "certifi==2025.8.3",
     "click==8.2.1",
@@ -16,6 +26,11 @@ dependencies = [
     "pydantic-settings>=2.0.0",
     "uvicorn[standard]>=0.24.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/rapidrabbit76/GPTMock"
+Repository = "https://github.com/rapidrabbit76/GPTMock"
+Issues = "https://github.com/rapidrabbit76/GPTMock/issues"
 
 [project.scripts]
 gptmock = "gptmock.cli:main"
