@@ -134,6 +134,7 @@ async def _collect_non_stream_response(
     reasoning_summary_text = ""
     reasoning_full_text = ""
     function_calls: List[Dict[str, Any]] = []
+    annotations: List[Dict[str, Any]] = []
     error_message: str | None = None
 
     try:
@@ -190,6 +191,12 @@ async def _collect_non_stream_response(
                     if isinstance(item.get("arguments"), str):
                         fc["arguments"] = item.get("arguments")
                     function_calls.append(fc)
+            elif kind == "response.content_part.done":
+                part = evt.get("part")
+                if isinstance(part, dict) and part.get("type") == "output_text":
+                    part_annotations = part.get("annotations")
+                    if isinstance(part_annotations, list):
+                        annotations.extend(part_annotations)
             elif kind in ("response.completed", "response.failed"):
                 if isinstance(response_obj, dict):
                     final_response_obj = response_obj
@@ -226,12 +233,26 @@ async def _collect_non_stream_response(
         strict_json_text=strict_json_text,
     )
 
+    # Extract annotations from final_response_obj as fallback
+    if not annotations and isinstance(final_response_obj, dict):
+        for _item in (final_response_obj.get("output") or []):
+            if isinstance(_item, dict) and _item.get("type") == "message":
+                for _part in (_item.get("content") or []):
+                    if isinstance(_part, dict) and _part.get("type") == "output_text":
+                        _ann = _part.get("annotations")
+                        if isinstance(_ann, list):
+                            annotations.extend(_ann)
+
+    content_item: Dict[str, Any] = {"type": "output_text", "text": rendered_text}
+    if annotations:
+        content_item["annotations"] = annotations
+
     output: List[Dict[str, Any]] = [
         {
             "type": "message",
             "status": "completed",
             "role": "assistant",
-            "content": [{"type": "output_text", "text": rendered_text}],
+            "content": [content_item],
         }
     ]
     output.extend(function_calls)

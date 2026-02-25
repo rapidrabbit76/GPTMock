@@ -185,7 +185,7 @@ curl http://127.0.0.1:8000/v1/chat/completions \
 
 - **Streaming & Non-streaming** — real-time SSE and buffered JSON responses
 - **Structured Output** — `response_format` with `json_schema` / `json_object` support
-- **Tool / Function Calling** — including web search via `responses_tools`
+- **Tool / Function Calling** — including web search with URL citation annotations via `responses_tools`
 - **Thinking Summaries** — `<think>` tags, `o3` reasoning format, or legacy mode
 - **Responses API** — `POST /v1/responses` for LangChain and other clients that auto-route codex models
 - **Ollama Compatibility** — drop-in replacement for Ollama API consumers
@@ -325,7 +325,7 @@ curl http://127.0.0.1:8000/v1/chat/completions \
 
 ### Deprecated
 
-- ~~`codex-mini` / `gpt-5.1-codex-mini`~~ — discontinued by upstream
+- ~~`codex-mini` / `gpt-5.1-codex-mini`~~ — discontinued by Codex Backend
 # Customisation / Configuration
 
 ### Thinking effort
@@ -339,25 +339,94 @@ GPT-5 has a configurable amount of "effort" it can put into thinking, which may 
 - `--reasoning-summary` (choice of auto,concise,detailed,none)<br>
 Models like GPT-5 do not return raw thinking content, but instead return thinking summaries. These can also be customised by you.
 
-### OpenAI Tools
+### Web Search
 
-- `--enable-web-search`<br>
-You can also access OpenAI tools through this project. Currently, only web search is available.
-You can enable it by starting the server with this parameter, which will allow OpenAI to determine when a request requires a web search, or you can use the following parameters during a request to the API to enable web search:
-<br><br>
-`responses_tools`: supports `[{"type":"web_search"}]` / `{ "type": "web_search_preview" }`<br>
-`responses_tool_choice`: `"auto"` or `"none"`
+- `--enable-web-search`
 
-#### Example usage
+Enables the web search tool by default for all requests. When enabled, the model decides autonomously whether a query needs a web search. You can also enable web search per-request without the server flag by passing the parameters below.
+
+#### Request Parameters
+
+| Parameter | Values | Description |
+|-----------|--------|-------------|
+| `responses_tools` | `[{"type":"web_search"}]` | Enable web search for this request |
+| `responses_tool_choice` | `"auto"` / `"none"` | Let the model decide, or disable |
+
+#### Annotations (URL Citations)
+
+When web search is active, the model may return `annotations` containing source URLs. These are included automatically in responses:
+
+**Non-streaming** (`stream: false`) — annotations are attached to the message:
 
 ```json
 {
-  "model": "gpt-5",
-  "messages": [{"role":"user","content":"Find current METAR rules"}],
-  "stream": true,
-  "responses_tools": [{"type": "web_search"}],
-  "responses_tool_choice": "auto"
+  "choices": [
+    {
+      "message": {
+        "role": "assistant",
+        "content": "SpaceX launched 29 Starlink satellites...",
+        "annotations": [
+          {
+            "type": "url_citation",
+            "start_index": 0,
+            "end_index": 150,
+            "url": "https://spaceflightnow.com/...",
+            "title": "SpaceX Falcon 9 launch"
+          }
+        ]
+      }
+    }
+  ]
 }
+```
+
+**Streaming** (`stream: true`) — annotations arrive as a dedicated chunk before the final `stop` chunk:
+
+```json
+data: {"choices": [{"delta": {"annotations": [{"type": "url_citation", "start_index": 0, "end_index": 150, "url": "https://...", "title": "..."}]}, "finish_reason": null}]}
+data: {"choices": [{"delta": {}, "finish_reason": "stop"}]}
+```
+
+**Responses API** (`POST /v1/responses`, non-streaming) — annotations are nested inside the output content:
+
+```json
+{
+  "output": [
+    {
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "SpaceX launched 29 Starlink satellites...",
+          "annotations": [
+            {
+              "type": "url_citation",
+              "start_index": 0,
+              "end_index": 150,
+              "url": "https://spaceflightnow.com/...",
+              "title": "SpaceX Falcon 9 launch"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+#### Example Request
+
+```bash
+curl http://127.0.0.1:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-5",
+    "messages": [{"role":"user","content":"Find current METAR rules"}],
+    "stream": true,
+    "responses_tools": [{"type": "web_search"}],
+    "responses_tool_choice": "auto"
+  }'
 ```
 
 ### Expose reasoning models
