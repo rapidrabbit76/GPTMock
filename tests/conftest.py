@@ -14,6 +14,7 @@ Usage:
 from __future__ import annotations
 
 import os
+from typing import List
 
 import pytest
 
@@ -25,12 +26,18 @@ TEST_PROMPT = "Say 'hello' and nothing else."
 TIMEOUT = 120
 
 
-def get_all_models() -> list[str]:
-    """Return all base model IDs from the registry."""
+def _get_all_models() -> List[str]:
+    """Return all base model IDs from the registry (computed once at import time)."""
     return get_model_list(expose_reasoning=False)
 
 
-ALL_MODELS = get_all_models()
+ALL_MODELS: List[str] = _get_all_models()
+
+
+@pytest.fixture(scope="session")
+def all_models() -> List[str]:
+    """Session-scoped fixture providing the model list."""
+    return ALL_MODELS
 
 
 @pytest.fixture(scope="session")
