@@ -6,6 +6,8 @@ via direct HTTP calls to /v1/chat/completions.
 
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 
@@ -60,8 +62,6 @@ def test_chat_completions_stream(model: str) -> None:
                     got_done = True
                     break
                 if line.startswith("data: "):
-                    import json
-
                     chunk = json.loads(line[6:])
                     delta = chunk.get("choices", [{}])[0].get("delta", {})
                     text = delta.get("content")
@@ -94,3 +94,46 @@ def test_ollama_chat(model: str) -> None:
         f"[{model}] ollama response content is empty or missing"
     )
     assert data.get("done") is True, f"[{model}] ollama response 'done' is not True"
+
+
+def test_chat_completions_non_stream_web_search_annotations() -> None:
+    """POST /v1/chat/completions (non-streaming) surfaces url_citation annotations when web search is enabled."""
+    payload = {
+        "model": "gpt-5",
+        "messages": [
+            {
+                "role": "user",
+                "content": "Find a recent news article about SpaceX launches and include sources.",
+            }
+        ],
+        "stream": False,
+        "responses_tools": [{"type": "web_search"}],
+        "responses_tool_choice": "auto",
+    }
+
+    with httpx.Client(base_url=OPENAI_BASE_URL, timeout=TIMEOUT) as client:
+        resp = client.post("/chat/completions", json=payload)
+
+    assert resp.status_code == 200, f"status={resp.status_code} body={resp.text}"
+
+    data = resp.json()
+    assert "choices" in data and data["choices"], "missing or empty choices"
+
+    message = data["choices"][0]["message"]
+    assert isinstance(message, dict)
+    assert isinstance(message.get("content"), str) and message["content"].strip(), "empty content"
+
+    # Verify annotations are present
+    annotations = message.get("annotations")
+    assert isinstance(annotations, list), "expected annotations list on message"
+    assert annotations, "expected at least one annotation for web search response"
+
+    # Verify url_citation structure
+    url_citations = [a for a in annotations if a.get("type") == "url_citation"]
+    assert url_citations, "expected at least one url_citation annotation"
+
+    for ann in url_citations:
+        assert isinstance(ann.get("url"), str) and ann["url"], "url_citation must have non-empty url"
+        assert isinstance(ann.get("title"), str) and ann["title"], "url_citation must have non-empty title"
+        assert isinstance(ann.get("start_index"), int), "url_citation must have start_index"
+        assert isinstance(ann.get("end_index"), int), "url_citation must have end_index"
