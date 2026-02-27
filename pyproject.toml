@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "gptmock"
-version = "2026.2.25"
+version = "2026.2.28"
 requires-python = ">=3.13"
 description = "OpenAI & Ollama compatible API powered by your ChatGPT account"
 readme = "README.md"
