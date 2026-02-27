@@ -73,7 +73,7 @@ services:
     command: ["serve", "--verbose", "--host", "0.0.0.0"]
     ports:
       - "8000:8000"
-      - "1455:1455"
+      - "1455:1455"  # OAuth callback port (needed during first-time login)
     volumes:
       - gptmock-data:/data
     environment:
@@ -84,32 +84,41 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 5s
-
-  login:
-    image: rapidrabbit76/gptmock:latest
-    command: ["login"]
-    ports:
-      - "1455:1455"
-    volumes:
-      - gptmock-data:/data
-    environment:
-      - GPTMOCK_HOME=/data
-      - CHATGPT_LOCAL_LOGIN_BIND=0.0.0.0
+      start_period: 120s  # Allows time for first-time login before health checks begin
 
 volumes:
   gptmock-data:
 ```
 
-### 2. Login
+### 2. Start (first run — login + serve in one step)
+
+Run the container interactively. If no credentials are found, the login flow starts automatically:
 
 ```bash
-docker compose run --rm --service-ports login login
+docker compose run --rm --service-ports serve
 ```
 
-A URL will be printed. Open it in your browser and complete the OAuth flow. If your browser can't reach the container, copy the full redirect URL from the browser address bar and paste it into the terminal.
+A URL will be printed in the terminal:
 
-### 3. Start the server
+```
+No credentials found. Starting login flow...
+Starting local login server on http://localhost:1455
+If your browser did not open, navigate to:
+  https://auth.openai.com/oauth/authorize?...
+
+If the browser can't reach this machine, paste the full redirect URL here and press Enter:
+```
+
+**Two ways to complete login:**
+
+1. **Browser on the same machine** — the URL opens automatically and the OAuth callback is caught on port 1455.
+2. **Browser on a different machine** — open the URL, complete login, then copy the full redirect URL from the browser address bar (starts with `http://localhost:1455/auth/callback?code=...`) and paste it into the terminal.
+
+Once login succeeds, the server starts automatically.
+
+### 3. Subsequent starts
+
+Once credentials are saved in the volume, just run in the background:
 
 ```bash
 docker compose up -d serve
