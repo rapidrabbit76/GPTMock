@@ -417,7 +417,7 @@ def cmd_serve(
     auth = read_auth_file()
     if not isinstance(auth, dict) or not auth.get("tokens"):
         eprint("No credentials found. Starting login flow...")
-        login_result = cmd_login(no_browser=False, verbose=verbose)
+        login_result = cmd_login(no_browser=True, verbose=verbose)
         if login_result != 0:
             eprint("Login failed. Cannot start server without credentials.")
             return login_result
