@@ -404,9 +404,6 @@ def cmd_info(auth: dict[str, object] | None) -> int:
 def cmd_login(no_browser: bool, verbose: bool) -> int:
     home_dir = get_home_dir()
     client_id = CLIENT_ID_DEFAULT
-    if not client_id:
-        eprint("ERROR: No OAuth client id configured. Set GPTMOCK_CLIENT_ID or CHATGPT_LOCAL_CLIENT_ID.")
-        return 1
 
     try:
         bind_host = (
@@ -565,11 +562,15 @@ def main() -> None:
         default=_env_int("GPTMOCK_PORT", 8000),
     )
     p_serve.add_argument(
-        "--verbose", action="store_true", help="Enable verbose logging"
+        "--verbose",
+        action="store_true",
+        default=_env_truthy("GPTMOCK_VERBOSE", "CHATGPT_LOCAL_VERBOSE"),
+        help="Enable verbose logging",
     )
     p_serve.add_argument(
         "--verbose-obfuscation",
         action="store_true",
+        default=_env_truthy("GPTMOCK_VERBOSE_OBFUSCATION", "CHATGPT_LOCAL_VERBOSE_OBFUSCATION"),
         help="Also dump raw SSE/obfuscation events (in addition to --verbose request/response logs).",
     )
     p_serve.add_argument(

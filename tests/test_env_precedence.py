@@ -7,26 +7,10 @@ CHATGPT_LOCAL_* legacy aliases in the CLI layer.
 
 from __future__ import annotations
 
-import importlib
 import sys
-from typing import Generator
 from unittest.mock import patch
 
 import pytest
-
-# ---------------------------------------------------------------------------
-# Helpers: re-import cli module with patched env
-# ---------------------------------------------------------------------------
-
-
-def _reload_cli(env: dict[str, str]):
-    """Reload gptmock.cli with a clean env snapshot."""
-    # Must clear cached module so module-level code re-executes
-    for key in list(sys.modules):
-        if key.startswith("gptmock"):
-            del sys.modules[key]
-    with patch.dict("os.environ", env, clear=True):
-        return importlib.import_module("gptmock.cli")
 
 
 # ---------------------------------------------------------------------------
@@ -192,7 +176,7 @@ class TestArgparseEnvDefaults:
         with patch.dict("os.environ", env, clear=True):
             # Re-import to force fresh evaluation of argparse defaults
             for key in list(sys.modules):
-                if key.startswith("gptmock.cli"):
+                if key.startswith("gptmock"):
                     del sys.modules[key]
             from gptmock import cli
 

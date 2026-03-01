@@ -249,8 +249,8 @@ Each option can also be set via environment variable. Precedence: **CLI flag > `
 |--------|---------|---------|-------------|
 | `--host` | `GPTMOCK_HOST` | `127.0.0.1` | Bind address |
 | `--port` | `GPTMOCK_PORT` | `8000` | Bind port |
-| `--verbose` | — | off | Log request/response payloads |
-| `--verbose-obfuscation` | — | off | Also dump raw SSE/obfuscation events |
+| `--verbose` | `GPTMOCK_VERBOSE` | off | Log request/response payloads |
+| `--verbose-obfuscation` | `GPTMOCK_VERBOSE_OBFUSCATION` | off | Also dump raw SSE/obfuscation events |
 | `--debug-model` | `GPTMOCK_DEBUG_MODEL` | — | Force all requests to use this model name |
 | `--reasoning-effort` | `GPTMOCK_REASONING_EFFORT` | `medium` | `minimal` / `low` / `medium` / `high` / `xhigh` |
 | `--reasoning-summary` | `GPTMOCK_REASONING_SUMMARY` | `auto` | `auto` / `concise` / `detailed` / `none` |
