@@ -9,7 +9,11 @@ import webbrowser
 from datetime import datetime
 
 from gptmock.core.constants import CLIENT_ID_DEFAULT
-from gptmock.infra.limits import RateLimitWindow, compute_reset_at, load_rate_limit_snapshot
+from gptmock.infra.limits import (
+    RateLimitWindow,
+    compute_reset_at,
+    load_rate_limit_snapshot,
+)
 from gptmock.infra.oauth import OAuthHTTPServer, OAuthHandler, REQUIRED_PORT, URL_BASE
 from gptmock.infra.auth import eprint, get_home_dir, parse_jwt_claims, read_auth_file
 
@@ -19,6 +23,39 @@ _STATUS_LIMIT_BAR_FILLED = "█"
 _STATUS_LIMIT_BAR_EMPTY = "░"
 _STATUS_LIMIT_BAR_PARTIAL = "▓"
 
+
+def _env_with_legacy(
+    name: str,
+    legacy_name: str | None = None,
+    default: str | None = None,
+) -> str | None:
+    value = os.getenv(name)
+    if value is not None and value != "":
+        return value
+    if legacy_name is not None:
+        legacy = os.getenv(legacy_name)
+        if legacy is not None and legacy != "":
+            return legacy
+    return default
+
+
+def _env_truthy(name: str, legacy_name: str | None = None) -> bool:
+    return (_env_with_legacy(name, legacy_name) or "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
+def _env_int(name: str, default: int, legacy_name: str | None = None) -> int:
+    raw = _env_with_legacy(name, legacy_name)
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
 
 def _clamp_percent(value: float) -> float:
     try:
@@ -39,31 +76,35 @@ def _render_progress_bar(percent_used: float) -> str:
     filled_exact = ratio * _STATUS_LIMIT_BAR_SEGMENTS
     filled = int(filled_exact)
     partial = filled_exact - filled
-    
+
     has_partial = partial > 0.5
     if has_partial:
         filled += 1
-    
+
     filled = max(0, min(_STATUS_LIMIT_BAR_SEGMENTS, filled))
     empty = _STATUS_LIMIT_BAR_SEGMENTS - filled
-    
+
     if has_partial and filled > 0:
-        bar = _STATUS_LIMIT_BAR_FILLED * (filled - 1) + _STATUS_LIMIT_BAR_PARTIAL + _STATUS_LIMIT_BAR_EMPTY * empty
+        bar = (
+            _STATUS_LIMIT_BAR_FILLED * (filled - 1)
+            + _STATUS_LIMIT_BAR_PARTIAL
+            + _STATUS_LIMIT_BAR_EMPTY * empty
+        )
     else:
         bar = _STATUS_LIMIT_BAR_FILLED * filled + _STATUS_LIMIT_BAR_EMPTY * empty
-    
+
     return f"[{bar}]"
 
 
 def _get_usage_color(percent_used: float) -> str:
     if percent_used >= 90:
-        return "\033[91m" 
+        return "\033[91m"
     elif percent_used >= 75:
-        return "\033[93m"  
+        return "\033[93m"
     elif percent_used >= 50:
-        return "\033[94m"  
+        return "\033[94m"
     else:
-        return "\033[92m" 
+        return "\033[92m"
 
 
 def _reset_color() -> str:
@@ -132,9 +173,9 @@ def _format_local_datetime(dt: datetime) -> str:
 
 def _print_usage_limits_block() -> None:
     stored = load_rate_limit_snapshot()
-    
+
     print("📊 Usage Limits")
-    
+
     if stored is None:
         print("  No usage data available yet. Send a request through gptmock first.")
         print()
@@ -158,22 +199,22 @@ def _print_usage_limits_block() -> None:
     for i, (icon_label, desc, window) in enumerate(windows):
         if i > 0:
             print()
-        
+
         percent_used = _clamp_percent(window.used_percent)
         remaining = max(0.0, 100.0 - percent_used)
         color = _get_usage_color(percent_used)
         reset = _reset_color()
-        
+
         progress = _render_progress_bar(percent_used)
         usage_text = f"{percent_used:5.1f}% used"
         remaining_text = f"{remaining:5.1f}% left"
-        
+
         print(f"{icon_label} {desc}")
         print(f"{color}{progress}{reset} {color}{usage_text}{reset} | {remaining_text}")
-        
+
         reset_in = _format_reset_duration(window.resets_in_seconds)
         reset_at = compute_reset_at(stored.captured_at, window)
-        
+
         if reset_in and reset_at:
             reset_at_str = _format_local_datetime(reset_at)
             print(f"    ⏳ Resets in: {reset_in} at {reset_at_str}")
@@ -184,6 +225,7 @@ def _print_usage_limits_block() -> None:
             print(f"    ⏳ Resets at: {reset_at_str}")
 
     print()
+
 
 def _format_token_expiry(exp_timestamp: int | float | None) -> tuple[str, bool]:
     if exp_timestamp is None:
@@ -216,7 +258,10 @@ def _format_token_expiry(exp_timestamp: int | float | None) -> tuple[str, bool]:
         date_str = local_expiry.strftime("%Y-%m-%d %H:%M")
 
         if expired:
-            return f"{date_str} {tz_name} ({time_str} ago) \033[91m[EXPIRED]\033[0m", True
+            return (
+                f"{date_str} {tz_name} ({time_str} ago) \033[91m[EXPIRED]\033[0m",
+                True,
+            )
         else:
             return f"{date_str} {tz_name} ({time_str} left)", False
     except Exception:
@@ -226,7 +271,7 @@ def _format_token_expiry(exp_timestamp: int | float | None) -> tuple[str, bool]:
 _UTC = __import__("datetime").timezone.utc
 
 
-def cmd_info(auth: dict | None) -> int:
+def cmd_info(auth: dict[str, object] | None) -> int:
     if not isinstance(auth, dict):
         print("  Not signed in")
         print(f"  Run: uv run python gptmock.py login")
@@ -239,6 +284,8 @@ def cmd_info(auth: dict | None) -> int:
     id_token = tokens.get("id_token") if isinstance(tokens, dict) else None
     account_id = tokens.get("account_id") if isinstance(tokens, dict) else None
     last_refresh = auth.get("last_refresh")
+    if not isinstance(last_refresh, str):
+        last_refresh = None
 
     if not access_token and not id_token:
         print("  Not signed in")
@@ -258,13 +305,30 @@ def cmd_info(auth: dict | None) -> int:
     email = id_claims.get("email") or id_claims.get("preferred_username") or "<unknown>"
     auth_provider = id_claims.get("auth_provider", "unknown")
 
-    plan_raw = auth_data.get("chatgpt_plan_type") or access_auth_data.get("chatgpt_plan_type") or "unknown"
-    plan_map = {"plus": "Plus", "pro": "Pro", "free": "Free", "team": "Team", "enterprise": "Enterprise"}
-    plan = plan_map.get(str(plan_raw).lower(), str(plan_raw).title() if isinstance(plan_raw, str) else "Unknown")
+    plan_raw = (
+        auth_data.get("chatgpt_plan_type")
+        or access_auth_data.get("chatgpt_plan_type")
+        or "unknown"
+    )
+    plan_map = {
+        "plus": "Plus",
+        "pro": "Pro",
+        "free": "Free",
+        "team": "Team",
+        "enterprise": "Enterprise",
+    }
+    plan = plan_map.get(
+        str(plan_raw).lower(),
+        str(plan_raw).title() if isinstance(plan_raw, str) else "Unknown",
+    )
 
     if not account_id:
-        account_id = auth_data.get("chatgpt_account_id") or access_auth_data.get("chatgpt_account_id")
-    user_id = auth_data.get("chatgpt_user_id") or access_auth_data.get("chatgpt_user_id")
+        account_id = auth_data.get("chatgpt_account_id") or access_auth_data.get(
+            "chatgpt_account_id"
+        )
+    user_id = auth_data.get("chatgpt_user_id") or access_auth_data.get(
+        "chatgpt_user_id"
+    )
 
     sub_start = auth_data.get("chatgpt_subscription_active_start")
     sub_until = auth_data.get("chatgpt_subscription_active_until")
@@ -296,7 +360,11 @@ def cmd_info(auth: dict | None) -> int:
                 now = datetime.now(tz=_UTC)
                 active = until_dt > now
                 days_left = (until_dt - now).days if active else 0
-                status = f"\033[92mActive\033[0m ({days_left}d left)" if active else "\033[91mExpired\033[0m"
+                status = (
+                    f"\033[92mActive\033[0m ({days_left}d left)"
+                    if active
+                    else "\033[91mExpired\033[0m"
+                )
                 print(f"  Until     : {until_dt.strftime('%Y-%m-%d')}  {status}")
             except Exception:
                 print(f"  Until     : {sub_until}")
@@ -309,7 +377,9 @@ def cmd_info(auth: dict | None) -> int:
     print(f"  ID        : {id_exp_str}")
     if last_refresh:
         try:
-            lr_dt = datetime.fromisoformat(last_refresh.replace("Z", "+00:00")).astimezone()
+            lr_dt = datetime.fromisoformat(
+                last_refresh.replace("Z", "+00:00")
+            ).astimezone()
             tz_name = lr_dt.tzname() or "local"
             print(f"  Refreshed : {lr_dt.strftime('%Y-%m-%d %H:%M')} {tz_name}")
         except Exception:
@@ -317,7 +387,9 @@ def cmd_info(auth: dict | None) -> int:
 
     if access_expired:
         print()
-        print(f"\033[93m  Access token expired. It will auto-refresh on next server request.\033[0m")
+        print(
+            f"\033[93m  Access token expired. It will auto-refresh on next server request.\033[0m"
+        )
         print(f"\033[93m  Or re-login: uv run python gptmock.py login\033[0m")
     print()
 
@@ -333,12 +405,23 @@ def cmd_login(no_browser: bool, verbose: bool) -> int:
     home_dir = get_home_dir()
     client_id = CLIENT_ID_DEFAULT
     if not client_id:
-        eprint("ERROR: No OAuth client id configured. Set CHATGPT_LOCAL_CLIENT_ID.")
+        eprint("ERROR: No OAuth client id configured. Set GPTMOCK_CLIENT_ID or CHATGPT_LOCAL_CLIENT_ID.")
         return 1
 
     try:
-        bind_host = os.getenv("CHATGPT_LOCAL_LOGIN_BIND", "127.0.0.1")
-        httpd = OAuthHTTPServer((bind_host, REQUIRED_PORT), OAuthHandler, home_dir=home_dir, client_id=client_id, verbose=verbose)
+        bind_host = (
+            _env_with_legacy(
+                "GPTMOCK_LOGIN_BIND", "CHATGPT_LOCAL_LOGIN_BIND", "127.0.0.1"
+            )
+            or "127.0.0.1"
+        )
+        httpd = OAuthHTTPServer(
+            (bind_host, REQUIRED_PORT),
+            OAuthHandler,
+            home_dir=home_dir,
+            client_id=client_id,
+            verbose=verbose,
+        )
     except OSError as e:
         eprint(f"ERROR: {e}")
         if e.errno == errno.EADDRINUSE:
@@ -439,11 +522,12 @@ def cmd_serve(
         os.environ["GPTMOCK_EXPOSE_REASONING_MODELS"] = "true"
     if default_web_search:
         os.environ["GPTMOCK_DEFAULT_WEB_SEARCH"] = "true"
-    
+
     os.environ["GPTMOCK_HOST"] = host
     os.environ["GPTMOCK_PORT"] = str(port)
-    
+
     import uvicorn
+
     uvicorn.run(
         "gptmock.app:create_app",
         factory=True,
@@ -455,17 +539,34 @@ def cmd_serve(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="ChatGPT Local: login & OpenAI-compatible proxy")
+    parser = argparse.ArgumentParser(
+        description="ChatGPT Local: login & OpenAI-compatible proxy"
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_login = sub.add_parser("login", help="Authorize with ChatGPT and store tokens")
-    p_login.add_argument("--no-browser", action="store_true", help="Do not open the browser automatically")
-    p_login.add_argument("--verbose", action="store_true", help="Enable verbose logging")
+    p_login.add_argument(
+        "--no-browser",
+        action="store_true",
+        help="Do not open the browser automatically",
+    )
+    p_login.add_argument(
+        "--verbose", action="store_true", help="Enable verbose logging"
+    )
 
     p_serve = sub.add_parser("serve", help="Run local OpenAI-compatible server")
-    p_serve.add_argument("--host", default="127.0.0.1")
-    p_serve.add_argument("--port", type=int, default=8000)
-    p_serve.add_argument("--verbose", action="store_true", help="Enable verbose logging")
+    p_serve.add_argument(
+        "--host",
+        default=_env_with_legacy("GPTMOCK_HOST", default="127.0.0.1"),
+    )
+    p_serve.add_argument(
+        "--port",
+        type=int,
+        default=_env_int("GPTMOCK_PORT", 8000),
+    )
+    p_serve.add_argument(
+        "--verbose", action="store_true", help="Enable verbose logging"
+    )
     p_serve.add_argument(
         "--verbose-obfuscation",
         action="store_true",
@@ -474,25 +575,40 @@ def main() -> None:
     p_serve.add_argument(
         "--debug-model",
         dest="debug_model",
-        default=os.getenv("CHATGPT_LOCAL_DEBUG_MODEL"),
+        default=_env_with_legacy("GPTMOCK_DEBUG_MODEL", "CHATGPT_LOCAL_DEBUG_MODEL"),
         help="Forcibly override requested 'model' with this value",
     )
     p_serve.add_argument(
         "--reasoning-effort",
         choices=["minimal", "low", "medium", "high", "xhigh"],
-        default=os.getenv("CHATGPT_LOCAL_REASONING_EFFORT", "medium").lower(),
+        default=(
+            _env_with_legacy(
+                "GPTMOCK_REASONING_EFFORT", "CHATGPT_LOCAL_REASONING_EFFORT"
+            )
+            or "medium"
+        ).lower(),
         help="Reasoning effort level for Responses API (default: medium)",
     )
     p_serve.add_argument(
         "--reasoning-summary",
         choices=["auto", "concise", "detailed", "none"],
-        default=os.getenv("CHATGPT_LOCAL_REASONING_SUMMARY", "auto").lower(),
+        default=(
+            _env_with_legacy(
+                "GPTMOCK_REASONING_SUMMARY", "CHATGPT_LOCAL_REASONING_SUMMARY"
+            )
+            or "auto"
+        ).lower(),
         help="Reasoning summary verbosity (default: auto)",
     )
     p_serve.add_argument(
         "--reasoning-compat",
         choices=["legacy", "o3", "think-tags", "current"],
-        default=os.getenv("CHATGPT_LOCAL_REASONING_COMPAT", "think-tags").lower(),
+        default=(
+            _env_with_legacy(
+                "GPTMOCK_REASONING_COMPAT", "CHATGPT_LOCAL_REASONING_COMPAT"
+            )
+            or "think-tags"
+        ).lower(),
         help=(
             "Compatibility mode for exposing reasoning to clients (legacy|o3|think-tags). "
             "'current' is accepted as an alias for 'legacy'"
@@ -501,7 +617,9 @@ def main() -> None:
     p_serve.add_argument(
         "--expose-reasoning-models",
         action="store_true",
-        default=(os.getenv("CHATGPT_LOCAL_EXPOSE_REASONING_MODELS") or "").strip().lower() in ("1", "true", "yes", "on"),
+        default=_env_truthy(
+            "GPTMOCK_EXPOSE_REASONING_MODELS", "CHATGPT_LOCAL_EXPOSE_REASONING_MODELS"
+        ),
         help=(
             "Expose GPT-5 family reasoning effort variants (minimal|low|medium|high|xhigh where supported) "
             "as separate models from /v1/models. This allows choosing effort via model selection in compatible UIs."
@@ -510,15 +628,21 @@ def main() -> None:
     p_serve.add_argument(
         "--enable-web-search",
         action=argparse.BooleanOptionalAction,
-        default=(os.getenv("CHATGPT_LOCAL_ENABLE_WEB_SEARCH") or "").strip().lower() in ("1", "true", "yes", "on"),
+        default=_env_truthy(
+            "GPTMOCK_DEFAULT_WEB_SEARCH", "CHATGPT_LOCAL_ENABLE_WEB_SEARCH"
+        ),
         help=(
             "Enable default web_search tool when a request omits responses_tools (off by default). "
-            "Also configurable via CHATGPT_LOCAL_ENABLE_WEB_SEARCH."
+            "Also configurable via GPTMOCK_DEFAULT_WEB_SEARCH (legacy: CHATGPT_LOCAL_ENABLE_WEB_SEARCH)."
         ),
     )
 
-    p_info = sub.add_parser("info", help="Print current stored tokens and derived account id")
-    p_info.add_argument("--json", action="store_true", help="Output raw auth.json contents")
+    p_info = sub.add_parser(
+        "info", help="Print current stored tokens and derived account id"
+    )
+    p_info.add_argument(
+        "--json", action="store_true", help="Output raw auth.json contents"
+    )
 
     args = parser.parse_args()
 
