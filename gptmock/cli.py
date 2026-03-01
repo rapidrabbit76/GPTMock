@@ -274,7 +274,7 @@ _UTC = __import__("datetime").timezone.utc
 def cmd_info(auth: dict[str, object] | None) -> int:
     if not isinstance(auth, dict):
         print("  Not signed in")
-        print(f"  Run: uv run python gptmock.py login")
+        print(f"  Run: uvx gptmock login")
         print()
         _print_usage_limits_block()
         return 0
@@ -289,7 +289,7 @@ def cmd_info(auth: dict[str, object] | None) -> int:
 
     if not access_token and not id_token:
         print("  Not signed in")
-        print(f"  Run: uv run python gptmock.py login")
+        print(f"  Run: uvx gptmock login")
         print()
         _print_usage_limits_block()
         return 0
@@ -390,7 +390,7 @@ def cmd_info(auth: dict[str, object] | None) -> int:
         print(
             f"\033[93m  Access token expired. It will auto-refresh on next server request.\033[0m"
         )
-        print(f"\033[93m  Or re-login: uv run python gptmock.py login\033[0m")
+        print(f"\033[93m  Or re-login: uvx gptmock login\033[0m")
     print()
 
     print(f"Storage")

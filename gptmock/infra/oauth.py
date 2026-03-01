@@ -32,7 +32,7 @@ LOGIN_SUCCESS_HTML = """<!DOCTYPE html>
   <body>
     <div style=\"max-width: 640px; margin: 80px auto; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;\"> 
       <h1>Login successful</h1>
-      <p>You can now close this window and return to the terminal and run <code>python3 gptmock.py serve</code> to start the server.</p>
+      <p>You can now close this window and return to the terminal and run <code>uvx gptmock serve</code> to start the server.</p>
     </div>
   </body>
   </html>
