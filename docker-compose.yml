@@ -2,7 +2,7 @@ x-gptmock-common: &gptmock-common
   image: rapidrabbit76/gptmock:latest
   environment:
     - GPTMOCK_HOME=/data
-    - CHATGPT_LOCAL_LOGIN_BIND=0.0.0.0
+    - GPTMOCK_LOGIN_BIND=0.0.0.0
   volumes:
     - ./volumes/gptmock:/data
 

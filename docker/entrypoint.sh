@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-export GPTMOCK_HOME="${GPTMOCK_HOME:-/data}"
-export CHATGPT_LOCAL_HOME="${CHATGPT_LOCAL_HOME:-/data}"
+export GPTMOCK_HOME="${GPTMOCK_HOME:-${CHATGPT_LOCAL_HOME:-/data}}"
+export CHATGPT_LOCAL_HOME="${CHATGPT_LOCAL_HOME:-${GPTMOCK_HOME}}"
 
 cmd="${1:-serve}"
 shift || true
@@ -15,13 +15,14 @@ bool() {
 }
 
 if [[ "$cmd" == "serve" ]]; then
-  PORT="${PORT:-8000}"
+  PORT="${GPTMOCK_PORT:-${PORT:-8000}}"
+  export GPTMOCK_PORT="${PORT}"
   ARGS=(serve --host 0.0.0.0 --port "${PORT}")
 
-  if bool "${VERBOSE:-}" || bool "${CHATGPT_LOCAL_VERBOSE:-}"; then
+  if bool "${GPTMOCK_VERBOSE:-${VERBOSE:-${CHATGPT_LOCAL_VERBOSE:-}}}"; then
     ARGS+=(--verbose)
   fi
-  if bool "${VERBOSE_OBFUSCATION:-}" || bool "${CHATGPT_LOCAL_VERBOSE_OBFUSCATION:-}"; then
+  if bool "${GPTMOCK_VERBOSE_OBFUSCATION:-${VERBOSE_OBFUSCATION:-${CHATGPT_LOCAL_VERBOSE_OBFUSCATION:-}}}"; then
     ARGS+=(--verbose-obfuscation)
   fi
 
@@ -32,7 +33,7 @@ if [[ "$cmd" == "serve" ]]; then
   exec gptmock "${ARGS[@]}"
 elif [[ "$cmd" == "login" ]]; then
   ARGS=(login --no-browser)
-  if bool "${VERBOSE:-}" || bool "${CHATGPT_LOCAL_VERBOSE:-}"; then
+  if bool "${GPTMOCK_VERBOSE:-${VERBOSE:-${CHATGPT_LOCAL_VERBOSE:-}}}"; then
     ARGS+=(--verbose)
   fi
 
