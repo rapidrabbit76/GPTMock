@@ -78,7 +78,7 @@ services:
       - gptmock-data:/data
     environment:
       - GPTMOCK_HOME=/data
-      - CHATGPT_LOCAL_LOGIN_BIND=0.0.0.0
+      - GPTMOCK_LOGIN_BIND=0.0.0.0
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health').status==200 else 1)\""]
       interval: 10s
@@ -132,17 +132,15 @@ curl -s http://localhost:8000/health | jq .
 
 ### Docker Environment Variables
 
-Configure via `.env` file or docker-compose environment:
+All server options below are also available as environment variables. Use the `GPTMOCK_*` canonical names (see [Server Options](#server-options)).
+
+Additional Docker-specific variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `GPTMOCK_PORT` | `8000` | Server port |
-| `GPTMOCK_VERBOSE` | `false` | Enable request/response logging |
-| `GPTMOCK_REASONING_EFFORT` | `medium` | `minimal` / `low` / `medium` / `high` / `xhigh` |
-| `GPTMOCK_REASONING_SUMMARY` | `auto` | `auto` / `concise` / `detailed` / `none` |
-| `GPTMOCK_REASONING_COMPAT` | `think-tags` | `think-tags` / `o3` / `legacy` |
-| `GPTMOCK_EXPOSE_REASONING_MODELS` | `false` | Expose reasoning levels as separate models |
-| `GPTMOCK_DEFAULT_WEB_SEARCH` | `false` | Enable web search tool by default |
+| `GPTMOCK_HOME` | `/data` | Auth file directory — mount a volume here |
+| `GPTMOCK_LOGIN_BIND` | `0.0.0.0` | OAuth callback server bind address |
+| `GPTMOCK_OLLAMA_VERSION` | `0.12.10` | Ollama API compatibility header version |
 
 ---
 
@@ -245,17 +243,22 @@ curl http://127.0.0.1:8000/v1/chat/completions \
 gptmock serve [OPTIONS]
 ```
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--host` | `127.0.0.1` | Bind address |
-| `--port` | `8000` | Bind port |
-| `--verbose` | off | Log request/response payloads |
-| `--reasoning-effort` | `medium` | Default reasoning effort level |
-| `--reasoning-summary` | `auto` | Reasoning summary verbosity |
-| `--reasoning-compat` | `think-tags` | How reasoning is exposed (`think-tags` / `o3` / `legacy`) |
-| `--expose-reasoning-models` | off | Show each reasoning level as a separate model in `/v1/models` |
-| `--enable-web-search` | off | Enable web search tool by default |
+Each option can also be set via environment variable. Precedence: **CLI flag > `GPTMOCK_*` env > `CHATGPT_LOCAL_*` legacy env > default**.
 
+| Option | Env var | Default | Description |
+|--------|---------|---------|-------------|
+| `--host` | `GPTMOCK_HOST` | `127.0.0.1` | Bind address |
+| `--port` | `GPTMOCK_PORT` | `8000` | Bind port |
+| `--verbose` | — | off | Log request/response payloads |
+| `--verbose-obfuscation` | — | off | Also dump raw SSE/obfuscation events |
+| `--debug-model` | `GPTMOCK_DEBUG_MODEL` | — | Force all requests to use this model name |
+| `--reasoning-effort` | `GPTMOCK_REASONING_EFFORT` | `medium` | `minimal` / `low` / `medium` / `high` / `xhigh` |
+| `--reasoning-summary` | `GPTMOCK_REASONING_SUMMARY` | `auto` | `auto` / `concise` / `detailed` / `none` |
+| `--reasoning-compat` | `GPTMOCK_REASONING_COMPAT` | `think-tags` | How reasoning is exposed: `think-tags` / `o3` / `legacy` |
+| `--expose-reasoning-models` | `GPTMOCK_EXPOSE_REASONING_MODELS` | off | Show effort variants as separate models in `/v1/models` |
+| `--enable-web-search` | `GPTMOCK_DEFAULT_WEB_SEARCH` | off | Enable web search by default when `responses_tools` is omitted |
+
+> **Legacy aliases**: `CHATGPT_LOCAL_REASONING_EFFORT`, `CHATGPT_LOCAL_REASONING_SUMMARY`, `CHATGPT_LOCAL_REASONING_COMPAT`, `CHATGPT_LOCAL_EXPOSE_REASONING_MODELS`, `CHATGPT_LOCAL_ENABLE_WEB_SEARCH`, `CHATGPT_LOCAL_DEBUG_MODEL` are still accepted as fallbacks.
 ---
 
 ## Web Search
