@@ -3,8 +3,16 @@ from __future__ import annotations
 import os
 
 # OAuth Configuration
-CLIENT_ID_DEFAULT = os.getenv("CHATGPT_LOCAL_CLIENT_ID") or "app_EMoamEEZ73f0CkXaXp7hrann"
-OAUTH_ISSUER_DEFAULT = os.getenv("CHATGPT_LOCAL_ISSUER") or "https://auth.openai.com"
+CLIENT_ID_DEFAULT = (
+    os.getenv("GPTMOCK_CLIENT_ID")
+    or os.getenv("CHATGPT_LOCAL_CLIENT_ID")
+    or "app_EMoamEEZ73f0CkXaXp7hrann"
+)
+OAUTH_ISSUER_DEFAULT = (
+    os.getenv("GPTMOCK_ISSUER")
+    or os.getenv("CHATGPT_LOCAL_ISSUER")
+    or "https://auth.openai.com"
+)
 OAUTH_TOKEN_URL = f"{OAUTH_ISSUER_DEFAULT}/oauth/token"
 
 # ChatGPT API Endpoints
