@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.13"
 
 [[package]]
@@ -130,7 +130,7 @@ wheels = [
 
 [[package]]
 name = "gptmock"
-version = "0.0.2"
+version = "2026.3.1"
 source = { editable = "." }
 dependencies = [
     { name = "certifi" },
