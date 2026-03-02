@@ -52,9 +52,16 @@ def normalize_model_name(name: str | None, debug_model: str | None = None) -> st
     return mapping.get(base, base)
 
 
-def get_instructions_for_model(model: str, base_instructions: str, gpt5_codex_instructions: str | None) -> str:
+def get_instructions_for_model(
+    model: str, base_instructions: str, gpt5_codex_instructions: str | None
+) -> str:
     """Return system instructions for a given model."""
-    if model.startswith("gpt-5-codex") or model.startswith("gpt-5.1-codex") or model.startswith("gpt-5.2-codex") or model.startswith("gpt-5.3-codex"):
+    if (
+        model.startswith("gpt-5-codex")
+        or model.startswith("gpt-5.1-codex")
+        or model.startswith("gpt-5.2-codex")
+        or model.startswith("gpt-5.3-codex")
+    ):
         if isinstance(gpt5_codex_instructions, str) and gpt5_codex_instructions.strip():
             return gpt5_codex_instructions
     return base_instructions
@@ -75,13 +82,13 @@ def get_model_list(
         ("gpt-5.1-codex", ["high", "medium", "low"]),
         ("gpt-5.1-codex-max", ["xhigh", "high", "medium", "low"]),
     ]
-    
+
     model_ids: List[str] = []
     for base, efforts in model_groups:
         model_ids.append(base)
         if expose_reasoning:
             model_ids.extend([f"{base}-{effort}" for effort in efforts])
-    
+
     return model_ids
 
 
