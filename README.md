@@ -1,5 +1,10 @@
 # GPTMock
 
+[![Tests](https://github.com/rapidrabbit76/GPTMock/actions/workflows/tests.yml/badge.svg)](https://github.com/rapidrabbit76/GPTMock/actions/workflows/tests.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/rapidrabbit76/255a945245d92c731d002ee3be93a74c/raw/gptmock-coverage.json)](https://github.com/rapidrabbit76/GPTMock/actions/workflows/tests.yml)
+[![Python 3.13+](https://img.shields.io/badge/python-3.13%2B-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
 > **This is a fork of [RayBytes/chatmock](https://github.com/RayBytes/chatmock).**
 > The original Flask + synchronous `requests` stack has been replaced with **FastAPI + async `httpx`**, a layered architecture (router / service / infra), `pydantic-settings` configuration, and `uv` as the build system.
 

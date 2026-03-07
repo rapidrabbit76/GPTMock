@@ -37,3 +37,8 @@ uv.lock
 
 etc/
 volumes/
+
+# Coverage
+.coverage
+coverage.json
+htmlcov/
