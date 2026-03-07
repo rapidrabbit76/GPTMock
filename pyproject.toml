@@ -44,9 +44,30 @@ packages = ["gptmock"]
 
 [dependency-groups]
 dev = [
-    "ruff>=0.15.1",
-    "langchain-openai>=1.1.9",
     "pytest>=8.0.0",
     "pytest-asyncio>=0.25.0",
+    "pytest-cov>=6.0.0",
     "pytest-testmon>=2.2.0",
+    "ruff>=0.15.1",
+    "langchain-openai>=1.1.9",
 ]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "UP", "I"]
+ignore = ["E501"]
+
+[tool.coverage.run]
+source = ["gptmock"]
+omit = ["gptmock/cli.py"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.",
+    "if TYPE_CHECKING:",
+]
+show_missing = true
