@@ -1,27 +1,22 @@
 """Shared fixtures for gptmock integration tests.
 
-These tests require a running gptmock server.
-Configure the server URL via GPTMOCK_BASE_URL env var (default: http://127.0.0.1:8000).
+No running server needed — uses FastAPI TestClient in-process.
 
 Usage:
-    # Start server first
-    gptmock serve
-
-    # Run tests
-    pytest tests/ -v
+    uv run pytest tests/ -v
+    uv run pytest tests/ -v -k "gpt-5.4"
 """
 
 from __future__ import annotations
 
-import os
-from typing import List
+from typing import Generator, List
 
 import pytest
+from starlette.testclient import TestClient
 
+from gptmock.app import create_app
 from gptmock.services.model_registry import get_model_list
 
-BASE_URL = os.getenv("GPTMOCK_BASE_URL", "http://127.0.0.1:8000")
-OPENAI_BASE_URL = f"{BASE_URL}/v1"
 TEST_PROMPT = "Say 'hello' and nothing else."
 TIMEOUT = 120
 
@@ -35,16 +30,14 @@ ALL_MODELS: List[str] = _get_all_models()
 
 
 @pytest.fixture(scope="session")
+def client() -> Generator[TestClient, None, None]:
+    """In-process TestClient — no external server required."""
+    app = create_app()
+    with TestClient(app, raise_server_exceptions=False) as c:
+        yield c
+
+
+@pytest.fixture(scope="session")
 def all_models() -> List[str]:
     """Session-scoped fixture providing the model list."""
     return ALL_MODELS
-
-
-@pytest.fixture(scope="session")
-def base_url() -> str:
-    return BASE_URL
-
-
-@pytest.fixture(scope="session")
-def openai_base_url() -> str:
-    return OPENAI_BASE_URL

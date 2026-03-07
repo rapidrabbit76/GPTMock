@@ -1,30 +1,33 @@
 """Integration tests: OpenAI SDK client for all supported models.
 
 Validates that every model returns a valid response via the openai Python client.
+No running server needed — uses FastAPI TestClient in-process.
 """
 
 from __future__ import annotations
 
 import openai
 import pytest
+from starlette.testclient import TestClient
 
-from tests.conftest import ALL_MODELS, OPENAI_BASE_URL, TEST_PROMPT, TIMEOUT
+from tests.conftest import ALL_MODELS, TEST_PROMPT, TIMEOUT
 
 
-def _make_client() -> openai.OpenAI:
+def _make_openai_client(http_client: TestClient) -> openai.OpenAI:
     return openai.OpenAI(
-        base_url=OPENAI_BASE_URL,
+        base_url="http://testserver/v1",
         api_key="test-key",
         timeout=TIMEOUT,
+        http_client=http_client,
     )
 
 
 @pytest.mark.parametrize("model", ALL_MODELS, ids=ALL_MODELS)
-def test_openai_chat_non_stream(model: str) -> None:
+def test_openai_chat_non_stream(client: TestClient, model: str) -> None:
     """OpenAI client chat.completions.create (non-streaming) returns content for each model."""
-    client = _make_client()
+    oc = _make_openai_client(client)
 
-    resp = client.chat.completions.create(
+    resp = oc.chat.completions.create(
         model=model,
         messages=[{"role": "user", "content": TEST_PROMPT}],
         stream=False,
@@ -37,11 +40,11 @@ def test_openai_chat_non_stream(model: str) -> None:
 
 
 @pytest.mark.parametrize("model", ALL_MODELS, ids=ALL_MODELS)
-def test_openai_chat_stream(model: str) -> None:
+def test_openai_chat_stream(client: TestClient, model: str) -> None:
     """OpenAI client chat.completions.create (streaming) returns chunks for each model."""
-    client = _make_client()
+    oc = _make_openai_client(client)
 
-    stream = client.chat.completions.create(
+    stream = oc.chat.completions.create(
         model=model,
         messages=[{"role": "user", "content": TEST_PROMPT}],
         stream=True,
@@ -59,11 +62,11 @@ def test_openai_chat_stream(model: str) -> None:
 
 
 @pytest.mark.parametrize("model", ALL_MODELS, ids=ALL_MODELS)
-def test_openai_completions(model: str) -> None:
+def test_openai_completions(client: TestClient, model: str) -> None:
     """OpenAI client completions.create (legacy text) returns text for each model."""
-    client = _make_client()
+    oc = _make_openai_client(client)
 
-    resp = client.completions.create(
+    resp = oc.completions.create(
         model=model,
         prompt=TEST_PROMPT,
         stream=False,

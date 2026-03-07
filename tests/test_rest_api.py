@@ -1,21 +1,21 @@
-"""Integration tests: REST API (httpx) for all supported models.
+"""Integration tests: REST API for all supported models.
 
 Validates that every model returns a valid chat completion response
-via direct HTTP calls to /v1/chat/completions.
+via direct HTTP calls. No running server needed — uses FastAPI TestClient in-process.
 """
 
 from __future__ import annotations
 
 import json
 
-import httpx
 import pytest
+from starlette.testclient import TestClient
 
-from tests.conftest import ALL_MODELS, OPENAI_BASE_URL, TEST_PROMPT, TIMEOUT
+from tests.conftest import ALL_MODELS, TEST_PROMPT, TIMEOUT
 
 
 @pytest.mark.parametrize("model", ALL_MODELS, ids=ALL_MODELS)
-def test_chat_completions_non_stream(model: str) -> None:
+def test_chat_completions_non_stream(client: TestClient, model: str) -> None:
     """POST /v1/chat/completions (non-streaming) returns valid response for each model."""
     payload = {
         "model": model,
@@ -23,10 +23,11 @@ def test_chat_completions_non_stream(model: str) -> None:
         "stream": False,
     }
 
-    with httpx.Client(base_url=OPENAI_BASE_URL, timeout=TIMEOUT) as client:
-        resp = client.post("/chat/completions", json=payload)
+    resp = client.post("/v1/chat/completions", json=payload, timeout=TIMEOUT)
 
-    assert resp.status_code == 200, f"[{model}] status={resp.status_code} body={resp.text}"
+    assert resp.status_code == 200, (
+        f"[{model}] status={resp.status_code} body={resp.text}"
+    )
 
     data = resp.json()
     assert "choices" in data, f"[{model}] missing 'choices' in response"
@@ -40,7 +41,7 @@ def test_chat_completions_non_stream(model: str) -> None:
 
 
 @pytest.mark.parametrize("model", ALL_MODELS, ids=ALL_MODELS)
-def test_chat_completions_stream(model: str) -> None:
+def test_chat_completions_stream(client: TestClient, model: str) -> None:
     """POST /v1/chat/completions (streaming) returns valid SSE chunks for each model."""
     payload = {
         "model": model,
@@ -48,25 +49,26 @@ def test_chat_completions_stream(model: str) -> None:
         "stream": True,
     }
 
-    with httpx.Client(base_url=OPENAI_BASE_URL, timeout=TIMEOUT) as client:
-        with client.stream("POST", "/chat/completions", json=payload) as resp:
-            assert resp.status_code == 200, f"[{model}] status={resp.status_code}"
+    with client.stream(
+        "POST", "/v1/chat/completions", json=payload, timeout=TIMEOUT
+    ) as resp:
+        assert resp.status_code == 200, f"[{model}] status={resp.status_code}"
 
-            chunks: list[str] = []
-            got_done = False
+        chunks: list[str] = []
+        got_done = False
 
-            for line in resp.iter_lines():
-                if not line:
-                    continue
-                if line == "data: [DONE]":
-                    got_done = True
-                    break
-                if line.startswith("data: "):
-                    chunk = json.loads(line[6:])
-                    delta = chunk.get("choices", [{}])[0].get("delta", {})
-                    text = delta.get("content")
-                    if isinstance(text, str):
-                        chunks.append(text)
+        for line in resp.iter_lines():
+            if not line:
+                continue
+            if line == "data: [DONE]":
+                got_done = True
+                break
+            if line.startswith("data: "):
+                chunk = json.loads(line[6:])
+                delta = chunk.get("choices", [{}])[0].get("delta", {})
+                text = delta.get("content")
+                if isinstance(text, str):
+                    chunks.append(text)
 
     assert got_done, f"[{model}] stream never received [DONE]"
     full_text = "".join(chunks)
@@ -74,7 +76,7 @@ def test_chat_completions_stream(model: str) -> None:
 
 
 @pytest.mark.parametrize("model", ALL_MODELS, ids=ALL_MODELS)
-def test_ollama_chat(model: str) -> None:
+def test_ollama_chat(client: TestClient, model: str) -> None:
     """POST /api/chat (Ollama format) returns valid response for each model."""
     payload = {
         "model": model,
@@ -82,10 +84,11 @@ def test_ollama_chat(model: str) -> None:
         "stream": False,
     }
 
-    with httpx.Client(base_url=OPENAI_BASE_URL.rsplit("/v1", 1)[0], timeout=TIMEOUT) as client:
-        resp = client.post("/api/chat", json=payload)
+    resp = client.post("/api/chat", json=payload, timeout=TIMEOUT)
 
-    assert resp.status_code == 200, f"[{model}] status={resp.status_code} body={resp.text}"
+    assert resp.status_code == 200, (
+        f"[{model}] status={resp.status_code} body={resp.text}"
+    )
 
     data = resp.json()
     assert "message" in data, f"[{model}] missing 'message' in response"
@@ -96,7 +99,7 @@ def test_ollama_chat(model: str) -> None:
     assert data.get("done") is True, f"[{model}] ollama response 'done' is not True"
 
 
-def test_chat_completions_non_stream_web_search_annotations() -> None:
+def test_chat_completions_non_stream_web_search_annotations(client: TestClient) -> None:
     """POST /v1/chat/completions (non-streaming) surfaces url_citation annotations when web search is enabled."""
     payload = {
         "model": "gpt-5",
@@ -111,8 +114,7 @@ def test_chat_completions_non_stream_web_search_annotations() -> None:
         "responses_tool_choice": "auto",
     }
 
-    with httpx.Client(base_url=OPENAI_BASE_URL, timeout=TIMEOUT) as client:
-        resp = client.post("/chat/completions", json=payload)
+    resp = client.post("/v1/chat/completions", json=payload, timeout=TIMEOUT)
 
     assert resp.status_code == 200, f"status={resp.status_code} body={resp.text}"
 
@@ -121,7 +123,9 @@ def test_chat_completions_non_stream_web_search_annotations() -> None:
 
     message = data["choices"][0]["message"]
     assert isinstance(message, dict)
-    assert isinstance(message.get("content"), str) and message["content"].strip(), "empty content"
+    assert isinstance(message.get("content"), str) and message["content"].strip(), (
+        "empty content"
+    )
 
     # Verify annotations are present
     annotations = message.get("annotations")
@@ -133,7 +137,13 @@ def test_chat_completions_non_stream_web_search_annotations() -> None:
     assert url_citations, "expected at least one url_citation annotation"
 
     for ann in url_citations:
-        assert isinstance(ann.get("url"), str) and ann["url"], "url_citation must have non-empty url"
-        assert isinstance(ann.get("title"), str) and ann["title"], "url_citation must have non-empty title"
-        assert isinstance(ann.get("start_index"), int), "url_citation must have start_index"
+        assert isinstance(ann.get("url"), str) and ann["url"], (
+            "url_citation must have non-empty url"
+        )
+        assert isinstance(ann.get("title"), str) and ann["title"], (
+            "url_citation must have non-empty title"
+        )
+        assert isinstance(ann.get("start_index"), int), (
+            "url_citation must have start_index"
+        )
         assert isinstance(ann.get("end_index"), int), "url_citation must have end_index"
