@@ -61,7 +61,7 @@ select = ["E", "F", "W", "UP", "I"]
 ignore = ["E501"]
 
 [tool.pytest.ini_options]
-addopts = ["--ignore=tests/tools"]
+addopts = ["--ignore=tests/tools", "--testmon"]
 
 [tool.coverage.run]
 source = ["gptmock"]

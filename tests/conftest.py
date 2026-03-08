@@ -9,6 +9,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from gptmock.app import create_app
+from gptmock.core.badges import update_gist_badges
 from gptmock.infra.auth import get_home_dir, read_auth_file
 from gptmock.services.model_registry import get_model_list
 
@@ -29,6 +30,45 @@ def _get_all_models() -> list[str]:
 
 
 ALL_MODELS: list[str] = _get_all_models()
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        "--update-gist",
+        action="store_true",
+        default=False,
+        help="Update gist badges after a full tests run",
+    )
+
+
+def _is_full_tests_run(config: pytest.Config) -> bool:
+    args = [str(arg).rstrip("/") for arg in config.args]
+    return args in ([], ["tests"])
+
+
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+    if not session.config.getoption("update_gist"):
+        return
+    if not _is_full_tests_run(session.config):
+        terminal = session.config.pluginmanager.get_plugin("terminalreporter")
+        if terminal is not None:
+            terminal.write_line("Skipping gist update for non-full test target")
+        return
+
+    terminal = session.config.pluginmanager.get_plugin("terminalreporter")
+    stats = getattr(terminal, "stats", {}) if terminal is not None else {}
+    passed = len(stats.get("passed", []))
+    failed = len(stats.get("failed", [])) + len(stats.get("error", []))
+    skipped = len(stats.get("skipped", []))
+    collected = session.testscollected or passed + failed + skipped
+    ran = collected - skipped
+    tests_pct = round(passed / ran * 100) if ran > 0 else 0
+    update_gist_badges(
+        tests_label="tests",
+        tests_pct=tests_pct,
+        tests_collected=collected,
+        tests_skipped=skipped,
+    )
 
 
 @pytest.fixture(scope="session", autouse=True)
