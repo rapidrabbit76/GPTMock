@@ -44,7 +44,7 @@ class OllamaShowRequest(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    model: str
+    model: str = ""
 
 
 class OllamaChatRequest(BaseModel):

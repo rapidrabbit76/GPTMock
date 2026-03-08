@@ -81,9 +81,8 @@ class TestAppBootstrap:
         assert "capabilities" in data
 
     def test_ollama_show_missing_model(self, client: TestClient) -> None:
-        """POST /api/show without model field returns 422 (Pydantic validation)."""
         resp = client.post("/api/show", json={})
-        assert resp.status_code == 422
+        assert resp.status_code == 400
 
     def test_ollama_show_empty_model(self, client: TestClient) -> None:
         """POST /api/show with empty string model returns 400."""
@@ -171,9 +170,9 @@ class TestPydanticRequestModels:
         req = OllamaShowRequest(model="gpt-5")
         assert req.model == "gpt-5"
 
-    def test_ollama_show_missing_model_rejects(self) -> None:
-        with pytest.raises(Exception):  # noqa: B017
-            OllamaShowRequest()
+    def test_ollama_show_missing_model_defaults_empty(self) -> None:
+        req = OllamaShowRequest()
+        assert req.model == ""
 
     # -- OllamaChatRequest --
 
