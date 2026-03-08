@@ -16,7 +16,7 @@
 > **This is a fork of [RayBytes/chatmock](https://github.com/RayBytes/chatmock).**
 > The original Flask + synchronous `requests` stack has been replaced with **FastAPI + async `httpx`**, a layered architecture (router / service / infra), `pydantic-settings` configuration, and `uv` as the build system.
 
-Integration and coverage badges are updated from local runs. Refresh both by running `uv run python scripts/update_test_badge.py` with `GIST_TOKEN` available in your environment or `.env`.
+Integration and coverage badges are updated from local runs. Refresh both by running `scripts/test.sh` with `GIST_TOKEN` available in your environment or `.env`.
 
 gptmock runs a local server that proxies requests to the ChatGPT Codex backend, exposing an OpenAI/Ollama compatible API. Use GPT-5, GPT-5-Codex, and other models directly from your ChatGPT Plus/Pro subscription — no API key required.
 
