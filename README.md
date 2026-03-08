@@ -7,9 +7,8 @@
 <p align="center"><strong>OpenAI &amp; Ollama compatible API powered by your ChatGPT account.</strong></p>
 
 <p align="center">
-  <a href="https://github.com/rapidrabbit76/GPTMock/actions/workflows/tests.yml"><img alt="Tests" src="https://github.com/rapidrabbit76/GPTMock/actions/workflows/tests.yml/badge.svg"></a>
-  <a href="https://github.com/rapidrabbit76/GPTMock"><img alt="Integration Tests" src="https://img.shields.io/badge/integration%20tests-local%201645%20passed-brightgreen"></a>
-  <a href="https://github.com/rapidrabbit76/GPTMock/actions/workflows/tests.yml"><img alt="Coverage" src="https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/rapidrabbit76/255a945245d92c731d002ee3be93a74c/raw/gptmock-coverage.json"></a>
+  <a href="https://github.com/rapidrabbit76/GPTMock"><img alt="Tests" src="https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/rapidrabbit76/255a945245d92c731d002ee3be93a74c/raw/gptmock-tests.json"></a>
+  <a href="https://github.com/rapidrabbit76/GPTMock"><img alt="Coverage" src="https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/rapidrabbit76/255a945245d92c731d002ee3be93a74c/raw/gptmock-coverage.json"></a>
   <a href="https://www.python.org/downloads/"><img alt="Python 3.13+" src="https://img.shields.io/badge/python-3.13%2B-blue.svg"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green.svg"></a>
 </p>
@@ -17,7 +16,7 @@
 > **This is a fork of [RayBytes/chatmock](https://github.com/RayBytes/chatmock).**
 > The original Flask + synchronous `requests` stack has been replaced with **FastAPI + async `httpx`**, a layered architecture (router / service / infra), `pydantic-settings` configuration, and `uv` as the build system.
 
-Integration badge currently shows the latest local authenticated snapshot (`1645 passed`). To publish a dynamic badge later, run `uv run python scripts/update_test_badge.py` with `GIST_TOKEN`.
+Integration and coverage badges are updated from local runs. Refresh both by running `uv run python scripts/update_test_badge.py` with `GIST_TOKEN` available in your environment or `.env`.
 
 gptmock runs a local server that proxies requests to the ChatGPT Codex backend, exposing an OpenAI/Ollama compatible API. Use GPT-5, GPT-5-Codex, and other models directly from your ChatGPT Plus/Pro subscription — no API key required.
 
@@ -234,7 +233,9 @@ curl http://127.0.0.1:8000/v1/chat/completions \
 | POST | `/v1/completions` | OpenAI Text Completions |
 | POST | `/v1/responses` | OpenAI Responses API (for LangChain codex routing) |
 | GET | `/v1/models` | List available models |
+| GET | `/api/version` | Ollama-compatible version info |
 | POST | `/api/chat` | Ollama-compatible chat |
+| POST | `/api/show` | Ollama-compatible model details |
 | GET | `/api/tags` | Ollama model list |
 | GET | `/health` | Health check |
 
@@ -272,6 +273,7 @@ Each option can also be set via environment variable. Precedence: **CLI flag > `
 | `--reasoning-compat` | `GPTMOCK_REASONING_COMPAT` | `think-tags` | How reasoning is exposed: `think-tags` / `o3` / `legacy` (`current` is accepted as an alias for `legacy`) |
 | `--expose-reasoning-models` | `GPTMOCK_EXPOSE_REASONING_MODELS` | off | Show effort variants as separate models in `/v1/models` |
 | `--enable-web-search` | `GPTMOCK_DEFAULT_WEB_SEARCH` | off | Enable web search by default when `responses_tools` is omitted |
+| `--cors-origins` | `GPTMOCK_CORS_ORIGINS` | `*` | Comma-separated allowed CORS origins |
 
 > **Legacy aliases**: `CHATGPT_LOCAL_REASONING_EFFORT`, `CHATGPT_LOCAL_REASONING_SUMMARY`, `CHATGPT_LOCAL_REASONING_COMPAT`, `CHATGPT_LOCAL_EXPOSE_REASONING_MODELS`, `CHATGPT_LOCAL_ENABLE_WEB_SEARCH`, `CHATGPT_LOCAL_DEBUG_MODEL` are still accepted as fallbacks.
 ---
