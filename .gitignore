@@ -20,6 +20,11 @@ dist/
 # OS clutter
 .DS_Store
 
+# Editor swap files
+*.swp
+*.swo
+*~
+
 # Environment files
 .env
 
@@ -29,6 +34,8 @@ uv.lock
 # AI Agents
 .opencode/
 .sisyphus/
+.omx/
+.serena/
 
 *.ipynb
 

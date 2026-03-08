@@ -1,15 +1,21 @@
-# GPTMock
+<p align="center">
+  <img src="assets/banner.png" alt="GPTMock banner" />
+</p>
 
-[![Tests](https://github.com/rapidrabbit76/GPTMock/actions/workflows/tests.yml/badge.svg)](https://github.com/rapidrabbit76/GPTMock/actions/workflows/tests.yml)
-[![Integration Tests](https://img.shields.io/badge/integration%20tests-local%201645%20passed-brightgreen)](https://github.com/rapidrabbit76/GPTMock)
-[![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/rapidrabbit76/255a945245d92c731d002ee3be93a74c/raw/gptmock-coverage.json)](https://github.com/rapidrabbit76/GPTMock/actions/workflows/tests.yml)
-[![Python 3.13+](https://img.shields.io/badge/python-3.13%2B-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+<h1 align="center">GPTMock</h1>
+
+<p align="center"><strong>OpenAI &amp; Ollama compatible API powered by your ChatGPT account.</strong></p>
+
+<p align="center">
+  <a href="https://github.com/rapidrabbit76/GPTMock/actions/workflows/tests.yml"><img alt="Tests" src="https://github.com/rapidrabbit76/GPTMock/actions/workflows/tests.yml/badge.svg"></a>
+  <a href="https://github.com/rapidrabbit76/GPTMock"><img alt="Integration Tests" src="https://img.shields.io/badge/integration%20tests-local%201645%20passed-brightgreen"></a>
+  <a href="https://github.com/rapidrabbit76/GPTMock/actions/workflows/tests.yml"><img alt="Coverage" src="https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/rapidrabbit76/255a945245d92c731d002ee3be93a74c/raw/gptmock-coverage.json"></a>
+  <a href="https://www.python.org/downloads/"><img alt="Python 3.13+" src="https://img.shields.io/badge/python-3.13%2B-blue.svg"></a>
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green.svg"></a>
+</p>
 
 > **This is a fork of [RayBytes/chatmock](https://github.com/RayBytes/chatmock).**
 > The original Flask + synchronous `requests` stack has been replaced with **FastAPI + async `httpx`**, a layered architecture (router / service / infra), `pydantic-settings` configuration, and `uv` as the build system.
-
-**OpenAI & Ollama compatible API powered by your ChatGPT account.**
 
 Integration badge currently shows the latest local authenticated snapshot (`1645 passed`). To publish a dynamic badge later, run `uv run python scripts/update_test_badge.py` with `GIST_TOKEN`.
 
