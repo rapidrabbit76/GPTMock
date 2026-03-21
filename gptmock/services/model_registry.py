@@ -50,6 +50,9 @@ def normalize_model_name(name: str | None, debug_model: str | None = None) -> st
         "gpt5.4": "gpt-5.4",
         "gpt-5.4": "gpt-5.4",
         "gpt-5.4-latest": "gpt-5.4",
+        "gpt5.4-mini": "gpt-5.4-mini",
+        "gpt-5.4-mini": "gpt-5.4-mini",
+        "gpt-5.4-mini-latest": "gpt-5.4-mini",
     }
     return mapping.get(base, base)
 
@@ -84,6 +87,7 @@ def get_model_list(
         ("gpt-5.1-codex", ["high", "medium", "low"]),
         ("gpt-5.1-codex-max", ["xhigh", "high", "medium", "low"]),
         ("gpt-5.4", ["xhigh", "high", "medium", "low"]),
+        ("gpt-5.4-mini", ["xhigh", "high", "medium", "low"]),
     ]
 
     model_ids: list[str] = []
