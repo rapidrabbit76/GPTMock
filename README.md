@@ -212,6 +212,7 @@ curl http://127.0.0.1:8000/v1/chat/completions \
 | `gpt-5.2` | `low` / `medium` / `high` / `xhigh` | ✅ Supported |
 | `gpt-5-codex` | `low` / `medium` / `high` | ✅ Supported |
 | `gpt-5.1-codex` | `low` / `medium` / `high` | ✅ Supported |
+| `gpt-5.1-codex-mini` | `low` / `medium` / `high` | ✅ Supported |
 | `gpt-5.1-codex-max` | `low` / `medium` / `high` / `xhigh` | ✅ Supported |
 | `gpt-5.2-codex` | `low` / `medium` / `high` / `xhigh` | ✅ Supported |
 | `gpt-5.3-codex` | `low` / `medium` / `high` / `xhigh` | ✅ Supported |
@@ -221,9 +222,7 @@ curl http://127.0.0.1:8000/v1/chat/completions \
 
 ### Deprecated / Unsupported Models
 
-| Model | Reason |
-|-------|--------|
-| `codex-mini` / `gpt-5.1-codex-mini` | ❌ Discontinued by Codex Backend — removed |
+None at this time.
 ---
 
 ## API Endpoints

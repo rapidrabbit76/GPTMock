@@ -18,7 +18,7 @@ from gptmock.schemas.requests import (
     ResponsesCreateRequest,
     TextCompletionRequest,
 )
-from gptmock.services.model_registry import get_model_list, get_ollama_models, get_openai_models
+from gptmock.services.model_registry import get_model_list, get_ollama_models, get_openai_models, normalize_model_name
 
 # ---------------------------------------------------------------------------
 # App bootstrap
@@ -286,6 +286,16 @@ class TestModelRegistry:
     def test_gpt5_in_model_list(self) -> None:
         models = get_model_list(expose_reasoning=False)
         assert "gpt-5" in models, f"gpt-5 not in model list: {models}"
+
+    def test_codex_mini_in_model_list(self) -> None:
+        models = get_model_list(expose_reasoning=False)
+        assert "gpt-5.1-codex-mini" in models, f"gpt-5.1-codex-mini not in model list: {models}"
+
+    def test_normalize_codex_mini_aliases(self) -> None:
+        assert normalize_model_name("codex-mini") == "gpt-5.1-codex-mini"
+        assert normalize_model_name("gpt5.1-codex-mini") == "gpt-5.1-codex-mini"
+        assert normalize_model_name("gpt-5.1-codex-mini") == "gpt-5.1-codex-mini"
+        assert normalize_model_name("gpt-5.1-codex-mini-latest") == "gpt-5.1-codex-mini"
 
 
 # ---------------------------------------------------------------------------

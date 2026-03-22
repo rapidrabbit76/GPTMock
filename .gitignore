@@ -37,6 +37,7 @@ uv.lock
 .sisyphus/
 .omx/
 .serena/
+.omc/
 
 *.ipynb
 

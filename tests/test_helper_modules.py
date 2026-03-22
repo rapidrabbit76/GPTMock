@@ -638,6 +638,7 @@ class TestReasoningHelpers:
         assert allowed_efforts_for_model("gpt-5.2") == {"low", "medium", "high", "xhigh"}
         assert allowed_efforts_for_model("gpt-5.1") == {"low", "medium", "high"}
         assert allowed_efforts_for_model("gpt-5.1-codex-max") == {"low", "medium", "high", "xhigh"}
+        assert allowed_efforts_for_model("gpt-5.1-codex-mini") == {"low", "medium", "high"}
 
     def test_build_reasoning_param_applies_valid_overrides_and_fallbacks(self) -> None:
         assert build_reasoning_param("bad", "bad", None, allowed_efforts={"low", "medium"}) == {"effort": "medium", "summary": "auto"}
