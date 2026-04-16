@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from gptmock.services.reasoning import allowed_efforts_for_model, sort_efforts
+from gptmock.services.reasoning import (
+    EFFORT_ORDER,
+    allowed_efforts_for_model,
+    sort_efforts,
+    strip_effort_suffix,
+)
 
 OLLAMA_FAKE_EVAL = {
     "total_duration": 8497226791,
@@ -12,6 +17,23 @@ OLLAMA_FAKE_EVAL = {
     "eval_count": 247,
     "eval_duration": 6413802458,
 }
+
+MODEL_GROUPS: list[tuple[str, list[str]]] = [
+    ("gpt-5", ["high", "medium", "low", "minimal"]),
+    ("gpt-5.1", ["high", "medium", "low"]),
+    ("gpt-5.2", ["xhigh", "high", "medium", "low"]),
+    ("gpt-5-codex", ["high", "medium", "low"]),
+    ("gpt-5.2-codex", ["xhigh", "high", "medium", "low"]),
+    ("gpt-5.3-codex", ["xhigh", "high", "medium", "low"]),
+    ("gpt-5.3-codex-spark", ["xhigh", "high", "medium", "low"]),
+    ("gpt-5.1-codex", ["high", "medium", "low"]),
+    ("gpt-5.1-codex-mini", ["high", "medium", "low"]),
+    ("gpt-5.1-codex-max", ["xhigh", "high", "medium", "low"]),
+    ("gpt-5.4", ["xhigh", "high", "medium", "low"]),
+    ("gpt-5.4-mini", ["xhigh", "high", "medium", "low"]),
+]
+
+_BASE_MODEL_IDS: frozenset[str] = frozenset(base for base, _ in MODEL_GROUPS)
 
 
 def normalize_model_name(name: str | None, debug_model: str | None = None) -> str:
@@ -82,23 +104,8 @@ def get_model_list(
     expose_reasoning: bool = False,
 ) -> list[str]:
     """Return unified model list for both OpenAI and Ollama formats."""
-    model_groups = [
-        ("gpt-5", ["high", "medium", "low", "minimal"]),
-        ("gpt-5.1", ["high", "medium", "low"]),
-        ("gpt-5.2", ["xhigh", "high", "medium", "low"]),
-        ("gpt-5-codex", ["high", "medium", "low"]),
-        ("gpt-5.2-codex", ["xhigh", "high", "medium", "low"]),
-        ("gpt-5.3-codex", ["xhigh", "high", "medium", "low"]),
-        ("gpt-5.3-codex-spark", ["xhigh", "high", "medium", "low"]),
-        ("gpt-5.1-codex", ["high", "medium", "low"]),
-        ("gpt-5.1-codex-mini", ["high", "medium", "low"]),
-        ("gpt-5.1-codex-max", ["xhigh", "high", "medium", "low"]),
-        ("gpt-5.4", ["xhigh", "high", "medium", "low"]),
-        ("gpt-5.4-mini", ["xhigh", "high", "medium", "low"]),
-    ]
-
     model_ids: list[str] = []
-    for base, efforts in model_groups:
+    for base, efforts in MODEL_GROUPS:
         model_ids.append(base)
         if expose_reasoning:
             model_ids.extend([f"{base}-{effort}" for effort in efforts])
@@ -106,25 +113,49 @@ def get_model_list(
     return model_ids
 
 
-def _reasoning_metadata(model_id: str) -> dict[str, Any]:
-    for effort in ("xhigh", "high", "medium", "low", "minimal"):
-        for sep in ("-", "_"):
+def _detect_preset_effort(model_id: str) -> str | None:
+    if model_id in _BASE_MODEL_IDS:
+        return None
+    for sep in ("-", "_"):
+        for effort in reversed(EFFORT_ORDER):
             suffix = f"{sep}{effort}"
             if model_id.endswith(suffix):
-                return {
-                    "supported_efforts": [effort],
-                    "default_effort": effort,
-                }
+                base = model_id[: -len(suffix)]
+                if base in _BASE_MODEL_IDS:
+                    return effort
+                return None
+    return None
 
-    supported = sort_efforts(allowed_efforts_for_model(model_id))
-    default = "medium" if "medium" in supported else (supported[0] if supported else "medium")
-    return {
+
+def _reasoning_metadata(model_id: str, default_effort: str) -> dict[str, Any]:
+    base = strip_effort_suffix(model_id)
+    supported = sort_efforts(allowed_efforts_for_model(base))
+
+    if default_effort in supported:
+        default = default_effort
+    elif "medium" in supported:
+        default = "medium"
+    elif supported:
+        default = supported[0]
+    else:
+        default = default_effort
+
+    metadata: dict[str, Any] = {
         "supported_efforts": supported,
         "default_effort": default,
     }
 
+    preset = _detect_preset_effort(model_id)
+    if preset is not None and preset in supported:
+        metadata["preset_effort"] = preset
 
-def get_openai_models(expose_reasoning: bool = False) -> list[dict[str, Any]]:
+    return metadata
+
+
+def get_openai_models(
+    expose_reasoning: bool = False,
+    default_effort: str = "medium",
+) -> list[dict[str, Any]]:
     """Return OpenAI-formatted model list."""
     model_ids = get_model_list(expose_reasoning)
     return [
@@ -132,7 +163,7 @@ def get_openai_models(expose_reasoning: bool = False) -> list[dict[str, Any]]:
             "id": mid,
             "object": "model",
             "owned_by": "owner",
-            "reasoning": _reasoning_metadata(mid),
+            "reasoning": _reasoning_metadata(mid, default_effort),
         }
         for mid in model_ids
     ]

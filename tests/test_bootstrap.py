@@ -299,14 +299,64 @@ class TestModelRegistry:
     def test_get_openai_models_reasoning_for_variants(self) -> None:
         models = {m["id"]: m for m in get_openai_models(expose_reasoning=True)}
 
-        assert models["gpt-5-high"]["reasoning"] == {
-            "supported_efforts": ["high"],
-            "default_effort": "high",
+        gpt5_high = models["gpt-5-high"]["reasoning"]
+        assert gpt5_high["supported_efforts"] == ["minimal", "low", "medium", "high"]
+        assert gpt5_high["preset_effort"] == "high"
+
+        gpt54_xhigh = models["gpt-5.4-xhigh"]["reasoning"]
+        assert gpt54_xhigh["supported_efforts"] == ["low", "medium", "high", "xhigh"]
+        assert gpt54_xhigh["preset_effort"] == "xhigh"
+
+    def test_get_openai_models_default_effort_reflects_setting(self) -> None:
+        models_medium = {m["id"]: m for m in get_openai_models(default_effort="medium")}
+        assert models_medium["gpt-5"]["reasoning"]["default_effort"] == "medium"
+
+        models_high = {m["id"]: m for m in get_openai_models(default_effort="high")}
+        assert models_high["gpt-5"]["reasoning"]["default_effort"] == "high"
+        assert models_high["gpt-5.4"]["reasoning"]["default_effort"] == "high"
+
+        models_xhigh = {m["id"]: m for m in get_openai_models(default_effort="xhigh")}
+        assert models_xhigh["gpt-5"]["reasoning"]["default_effort"] == "medium", (
+            "gpt-5 does not support xhigh; should fall back to medium"
+        )
+        assert models_xhigh["gpt-5.4"]["reasoning"]["default_effort"] == "xhigh"
+
+    def test_get_openai_models_endpoint_reflects_configured_default_effort(
+        self, client: TestClient
+    ) -> None:
+        resp = client.get("/v1/models")
+        assert resp.status_code == 200
+        data = resp.json()
+        models = {m["id"]: m for m in data["data"]}
+        assert models["gpt-5"]["reasoning"]["default_effort"] in {
+            "minimal", "low", "medium", "high",
         }
-        assert models["gpt-5.4-xhigh"]["reasoning"] == {
-            "supported_efforts": ["xhigh"],
-            "default_effort": "xhigh",
-        }
+
+    def test_strip_effort_suffix_handles_both_separators(self) -> None:
+        from gptmock.services.reasoning import strip_effort_suffix
+
+        assert strip_effort_suffix("gpt-5-high") == "gpt-5"
+        assert strip_effort_suffix("gpt-5_high") == "gpt-5"
+        assert strip_effort_suffix("gpt-5_minimal") == "gpt-5"
+        assert strip_effort_suffix("gpt-5.4-xhigh") == "gpt-5.4"
+        assert strip_effort_suffix("gpt-5") == "gpt-5"
+
+    def test_variant_detection_requires_known_base(self) -> None:
+        from gptmock.services.model_registry import _detect_preset_effort
+
+        assert _detect_preset_effort("gpt-5-high") == "high"
+        assert _detect_preset_effort("gpt-5_medium") == "medium"
+        assert _detect_preset_effort("gpt-5") is None
+        assert _detect_preset_effort("unknown-model-high") is None
+
+    def test_allowed_efforts_handles_variant_ids(self) -> None:
+        from gptmock.services.reasoning import allowed_efforts_for_model
+
+        base_efforts = allowed_efforts_for_model("gpt-5")
+        variant_efforts = allowed_efforts_for_model("gpt-5-high")
+        assert variant_efforts == base_efforts, (
+            "Variant IDs must yield the same family set as their base"
+        )
 
     def test_get_ollama_models_structure(self) -> None:
         models = get_ollama_models(expose_reasoning=False)
