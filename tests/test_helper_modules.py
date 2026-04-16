@@ -568,9 +568,11 @@ class TestSSEHelpers:
             {"item": {"type": "web_search_call", "call_id": "ws_2", "arguments": {"query": "news"}}},
             "response.output_item.done",
         )
-        assert len(frames) == 2
+        assert len(frames) == 1
         assert b'"name": "web_search"' in frames[0]
-        assert b'"finish_reason": "tool_calls"' in frames[1]
+        assert b'"finish_reason": "tool_calls"' not in frames[0]
+        assert b'"finish_reason": null' in frames[0]
+        assert ctx.tool_call_detected is True
 
     def test_handle_output_item_done_emits_function_call(self) -> None:
         ctx = self._ctx()
@@ -579,9 +581,11 @@ class TestSSEHelpers:
             {"item": {"type": "function_call", "call_id": "call_2", "name": "lookup", "arguments": {"city": "seoul"}}},
             "response.output_item.done",
         )
-        assert len(item_frames) == 2
+        assert len(item_frames) == 1
         assert b'"name": "lookup"' in item_frames[0]
-        assert b'"finish_reason": "tool_calls"' in item_frames[1]
+        assert b'"finish_reason": "tool_calls"' not in item_frames[0]
+        assert b'"finish_reason": null' in item_frames[0]
+        assert ctx.tool_call_detected is True
         assert _handle_output_item_done(ctx, {"item": {"type": "message"}}, "response.output_item.done") == []
 
     def test_handle_output_item_added_emits_initial_tool_call_chunk(self) -> None:
@@ -635,8 +639,38 @@ class TestSSEHelpers:
 
     def test_handle_function_call_args_delta_ignores_empty(self) -> None:
         ctx = self._ctx()
-        assert _handle_function_call_args_delta(ctx, {"delta": ""}, "response.function_call_arguments.delta") == []
-        assert _handle_function_call_args_delta(ctx, {}, "response.function_call_arguments.delta") == []
+        _handle_output_item_added(
+            ctx,
+            {"item": {"type": "function_call", "id": "i1", "call_id": "c1", "name": "fn"}},
+            "response.output_item.added",
+        )
+        assert _handle_function_call_args_delta(ctx, {"delta": "", "item_id": "i1"}, "response.function_call_arguments.delta") == []
+        assert _handle_function_call_args_delta(ctx, {"item_id": "i1"}, "response.function_call_arguments.delta") == []
+
+    def test_handle_function_call_args_delta_accepts_arguments_field(self) -> None:
+        ctx = self._ctx()
+        _handle_output_item_added(
+            ctx,
+            {"item": {"type": "function_call", "id": "i_done", "call_id": "c_done", "name": "fn"}},
+            "response.output_item.added",
+        )
+        frames = _handle_function_call_args_delta(
+            ctx,
+            {"arguments": '{"q":"final"}', "item_id": "i_done"},
+            "response.function_call_arguments.done",
+        )
+        assert len(frames) == 1
+        assert b'"arguments": "{\\"q\\":\\"final\\"}"' in frames[0]
+
+    def test_handle_function_call_args_delta_drops_out_of_order(self) -> None:
+        ctx = self._ctx()
+        frames = _handle_function_call_args_delta(
+            ctx,
+            {"delta": '{"q":"early"}', "item_id": "i_unknown"},
+            "response.function_call_arguments.delta",
+        )
+        assert frames == []
+        assert "i_unknown" not in ctx.ws_index
 
     def test_handle_output_item_done_skips_reemission_for_streamed_calls(self) -> None:
         ctx = self._ctx()
@@ -646,20 +680,33 @@ class TestSSEHelpers:
             {"item": {"type": "function_call", "call_id": "call_fc3", "name": "lookup", "arguments": '{"q":"hi"}'}},
             "response.output_item.done",
         )
-        assert len(frames) == 1
-        assert b'"finish_reason": "tool_calls"' in frames[0]
-        assert b'"name": "lookup"' not in frames[0]
-        assert ctx.sent_stop_chunk is True
+        assert frames == []
+        assert ctx.tool_call_detected is True
 
-    def test_handle_output_item_done_sets_sent_stop_chunk(self) -> None:
+    def test_handle_output_item_done_sets_tool_call_detected(self) -> None:
         ctx = self._ctx()
-        assert ctx.sent_stop_chunk is False
+        assert ctx.tool_call_detected is False
         _handle_output_item_done(
             ctx,
             {"item": {"type": "function_call", "call_id": "call_fc4", "name": "fn", "arguments": "{}"}},
             "response.output_item.done",
         )
-        assert ctx.sent_stop_chunk is True
+        assert ctx.tool_call_detected is True
+        assert ctx.sent_stop_chunk is False
+
+    def test_handle_output_item_done_aliases_id_and_call_id(self) -> None:
+        ctx = self._ctx()
+        ctx.ws_state["item_alias"] = {"query": "alpha"}
+        ctx.ws_index["item_alias"] = 3
+        ctx.tc_streamed.add("item_alias")
+        _handle_output_item_done(
+            ctx,
+            {"item": {"type": "web_search_call", "id": "item_alias", "call_id": "call_alias"}},
+            "response.output_item.done",
+        )
+        assert ctx.ws_index["call_alias"] == 3
+        assert "call_alias" in ctx.tc_streamed
+        assert ctx.ws_state["call_alias"] == {"query": "alpha"}
 
     def test_handle_text_done_does_not_emit_stop(self) -> None:
         from gptmock.infra.sse import _handle_text_done
@@ -674,12 +721,21 @@ class TestSSEHelpers:
         assert any(b'"finish_reason": "stop"' in f for f in frames)
         assert frames[-1] == b"data: [DONE]\n\n"
 
-    def test_handle_completed_does_not_duplicate_stop_after_tool_calls(self) -> None:
+    def test_handle_completed_emits_tool_calls_finish_when_tool_call_detected(self) -> None:
         ctx = self._ctx()
-        ctx.sent_stop_chunk = True
+        ctx.tool_call_detected = True
         frames = _handle_completed(ctx, {"response": {}}, "response.completed")
+        assert any(b'"finish_reason": "tool_calls"' in f for f in frames)
         assert not any(b'"finish_reason": "stop"' in f for f in frames)
         assert frames[-1] == b"data: [DONE]\n\n"
+
+    def test_handle_completed_emits_single_terminal_chunk_after_parallel_tool_calls(self) -> None:
+        ctx = self._ctx()
+        ctx.tool_call_detected = True
+        ctx.sent_stop_chunk = False
+        frames = _handle_completed(ctx, {"response": {}}, "response.completed")
+        terminal_count = sum(1 for f in frames if b'"finish_reason"' in f)
+        assert terminal_count == 1, f"Expected exactly 1 terminal chunk, got {terminal_count}"
 
     @pytest.mark.asyncio
     async def test_spec_tc1_single_tool_call(self) -> None:
@@ -758,6 +814,24 @@ class TestSSEHelpers:
         assert len(tc_by_index[0]["args"]) > 0
         assert len(tc_by_index[1]["args"]) > 0
 
+        finish_reasons = [
+            c["choices"][0].get("finish_reason")
+            for c in chunks
+            if c["choices"][0].get("finish_reason")
+        ]
+        assert finish_reasons == ["tool_calls"], (
+            f"Parallel tool_calls must emit finish_reason exactly once, got {finish_reasons}"
+        )
+
+        terminal_idx = next(
+            i for i, c in enumerate(chunks)
+            if c["choices"][0].get("finish_reason")
+        )
+        for c in chunks[:terminal_idx]:
+            assert c["choices"][0].get("finish_reason") is None, (
+                "Tool-call chunks must precede the terminal finish_reason chunk"
+            )
+
     @pytest.mark.asyncio
     async def test_spec_tc3_no_tool_call_text_only(self) -> None:
         """TC3: No tool_call — content streams per-delta immediately, finish_reason=stop."""
@@ -827,6 +901,73 @@ class TestSSEHelpers:
 
         assert tc_indices == {0}
         assert finish_reasons == ["tool_calls"]
+
+    @pytest.mark.asyncio
+    async def test_e2e_args_delta_before_added_is_dropped(self) -> None:
+        lines = [
+            'data: {"type":"response.function_call_arguments.delta","delta":"{\\"early\\":true}","item_id":"item_early"}',
+            'data: {"type":"response.output_item.added","item":{"type":"function_call","id":"item_early","call_id":"call_early","name":"fn"}}',
+            'data: {"type":"response.function_call_arguments.delta","delta":"{\\"q\\":1}","item_id":"item_early"}',
+            'data: {"type":"response.output_item.done","item":{"type":"function_call","call_id":"call_early","name":"fn","arguments":"{\\"q\\":1}"}}',
+            'data: {"type":"response.completed","response":{"id":"resp_oo"}}',
+        ]
+        upstream = _AsyncResponse(lines)
+        frames = [frame async for frame in sse_translate_chat(cast(Any, upstream), model="gpt-5", created=123)]
+
+        chunks = [
+            json.loads(f.decode()[6:].strip())
+            for f in frames
+            if f.startswith(b"data: ") and not f.startswith(b"data: [DONE]")
+        ]
+
+        all_args: list[str] = []
+        for c in chunks:
+            for tc in c["choices"][0]["delta"].get("tool_calls", []):
+                fn = tc.get("function", {})
+                if "arguments" in fn and fn["arguments"]:
+                    all_args.append(fn["arguments"])
+        joined_args = "".join(all_args)
+
+        assert "early" not in joined_args, (
+            f"Early (pre-added) delta must be dropped, got args: {joined_args!r}"
+        )
+        assert '"q"' in joined_args
+
+        finish_reasons = [
+            c["choices"][0].get("finish_reason")
+            for c in chunks
+            if c["choices"][0].get("finish_reason")
+        ]
+        assert finish_reasons == ["tool_calls"]
+
+    @pytest.mark.asyncio
+    async def test_e2e_function_call_args_done_with_arguments_field(self) -> None:
+        lines = [
+            'data: {"type":"response.output_item.added","item":{"type":"function_call","id":"item_ad","call_id":"call_ad","name":"fn"},"response":{"id":"resp_d"}}',
+            'data: {"type":"response.function_call_arguments.done","arguments":"{\\"final\\":true}","item_id":"item_ad"}',
+            'data: {"type":"response.output_item.done","item":{"type":"function_call","call_id":"call_ad","name":"fn","arguments":"{\\"final\\":true}"}}',
+            'data: {"type":"response.completed","response":{"id":"resp_d"}}',
+        ]
+        upstream = _AsyncResponse(lines)
+        frames = [frame async for frame in sse_translate_chat(cast(Any, upstream), model="gpt-5", created=123)]
+
+        chunks = [
+            json.loads(f.decode()[6:].strip())
+            for f in frames
+            if f.startswith(b"data: ") and not f.startswith(b"data: [DONE]")
+        ]
+
+        all_args: list[str] = []
+        for c in chunks:
+            for tc in c["choices"][0]["delta"].get("tool_calls", []):
+                fn = tc.get("function", {})
+                if "arguments" in fn and fn["arguments"]:
+                    all_args.append(fn["arguments"])
+        joined_args = "".join(all_args)
+
+        assert "final" in joined_args, (
+            f".done arguments payload must be emitted, got args: {joined_args!r}"
+        )
 
     @pytest.mark.asyncio
     async def test_content_chunks_emitted_per_event_not_batched(self) -> None:
