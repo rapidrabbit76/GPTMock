@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from gptmock.services.reasoning import allowed_efforts_for_model, sort_efforts
+
 OLLAMA_FAKE_EVAL = {
     "total_duration": 8497226791,
     "load_duration": 1747193958,
@@ -104,10 +106,36 @@ def get_model_list(
     return model_ids
 
 
+def _reasoning_metadata(model_id: str) -> dict[str, Any]:
+    for effort in ("xhigh", "high", "medium", "low", "minimal"):
+        for sep in ("-", "_"):
+            suffix = f"{sep}{effort}"
+            if model_id.endswith(suffix):
+                return {
+                    "supported_efforts": [effort],
+                    "default_effort": effort,
+                }
+
+    supported = sort_efforts(allowed_efforts_for_model(model_id))
+    default = "medium" if "medium" in supported else (supported[0] if supported else "medium")
+    return {
+        "supported_efforts": supported,
+        "default_effort": default,
+    }
+
+
 def get_openai_models(expose_reasoning: bool = False) -> list[dict[str, Any]]:
     """Return OpenAI-formatted model list."""
     model_ids = get_model_list(expose_reasoning)
-    return [{"id": mid, "object": "model", "owned_by": "owner"} for mid in model_ids]
+    return [
+        {
+            "id": mid,
+            "object": "model",
+            "owned_by": "owner",
+            "reasoning": _reasoning_metadata(mid),
+        }
+        for mid in model_ids
+    ]
 
 
 def get_ollama_models(expose_reasoning: bool = False) -> list[dict[str, Any]]:
