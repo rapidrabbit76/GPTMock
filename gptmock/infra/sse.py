@@ -10,6 +10,9 @@ import httpx
 
 from gptmock.core.constants import (
     SSE_CONTENT_PART_DONE,
+    SSE_FUNCTION_CALL_ARGS_DELTA,
+    SSE_FUNCTION_CALL_ARGS_DONE,
+    SSE_OUTPUT_ITEM_ADDED,
     SSE_OUTPUT_ITEM_DONE,
     SSE_OUTPUT_TEXT_DELTA,
     SSE_OUTPUT_TEXT_DONE,
@@ -54,6 +57,11 @@ class SSEChatContext:
     ws_state: dict[str, Any] = field(default_factory=dict)
     ws_index: dict[str, int] = field(default_factory=dict)
     ws_next_index: int = 0
+
+    # Incremental tool-call streaming state
+    tc_streamed: set[str] = field(default_factory=set)
+    tool_call_detected: bool = False
+    content_buffer: list[bytes] = field(default_factory=list)
 
     # ---- helpers --------------------------------------------------------
 
@@ -160,34 +168,93 @@ def _handle_web_search(
             except Exception:
                 logger.debug("Failed to update web_search state", exc_info=True)
 
-        eff_params = ctx.ws_state.get(
-            call_id,
-            params_dict if isinstance(params_dict, (dict, list, str)) else {},
-        )
-        args_str = _serialize_tool_args(eff_params)
-        idx = ctx.ws_idx(call_id)
-
-        out: list[bytes] = [
-            ctx.chunk(
-                {
-                    "tool_calls": [
-                        {
-                            "index": idx,
-                            "id": call_id,
-                            "type": "function",
-                            "function": {"name": "web_search", "arguments": args_str},
-                        },
-                    ],
-                },
-            ),
-        ]
-        if kind.endswith(".completed") or kind.endswith(".done"):
-            out.append(ctx.chunk({}, finish_reason="tool_calls"))
-        return out
+        return []
     except Exception:
         logger.debug("Failed to handle web_search event", exc_info=True)
         return []
+
+
+def _handle_output_item_added(
+    ctx: SSEChatContext,
+    evt: dict[str, Any],
+    kind: str,
+) -> list[bytes]:
+    item = evt.get("item") or {}
+    if not isinstance(item, dict):
         return []
+
+    item_type = item.get("type")
+    if item_type not in ("function_call", "web_search_call"):
+        return []
+
+    item_id = item.get("id") or ""
+    call_id = item.get("call_id") or item_id
+    if not isinstance(call_id, str) or not call_id:
+        return []
+
+    idx = ctx.ws_idx(call_id)
+    if isinstance(item_id, str) and item_id and item_id != call_id:
+        ctx.ws_index[item_id] = idx
+
+    ctx.tool_call_detected = True
+    ctx.content_buffer.clear()
+
+    if item_type != "function_call":
+        return []
+
+    name = item.get("name") or ""
+    if not isinstance(name, str):
+        return []
+
+    ctx.tc_streamed.add(call_id)
+    if isinstance(item_id, str) and item_id:
+        ctx.tc_streamed.add(item_id)
+
+    return [
+        ctx.chunk(
+            {
+                "role": "assistant",
+                "tool_calls": [
+                    {
+                        "index": idx,
+                        "id": call_id,
+                        "type": "function",
+                        "function": {"name": name, "arguments": ""},
+                    },
+                ],
+            },
+        ),
+    ]
+
+
+def _handle_function_call_args_delta(
+    ctx: SSEChatContext,
+    evt: dict[str, Any],
+    kind: str,
+) -> list[bytes]:
+    delta = evt.get("delta") or ""
+    if not isinstance(delta, str) or not delta:
+        return []
+
+    call_id = evt.get("item_id") or evt.get("call_id") or ""
+    if not isinstance(call_id, str):
+        return []
+
+    idx = ctx.ws_idx(call_id)
+    ctx.tc_streamed.add(call_id)
+
+    return [
+        ctx.chunk(
+            {
+                "tool_calls": [
+                    {
+                        "index": idx,
+                        "function": {"arguments": delta},
+                    },
+                ],
+            },
+        ),
+    ]
 
 
 def _handle_text_delta(
@@ -195,6 +262,9 @@ def _handle_text_delta(
     evt: dict[str, Any],
     kind: str,
 ) -> list[bytes]:
+    if ctx.tool_call_detected:
+        return []
+
     out: list[bytes] = []
     delta = evt.get("delta") or ""
     if ctx.compat == "think-tags" and ctx.think_open and not ctx.think_closed:
@@ -202,7 +272,8 @@ def _handle_text_delta(
         ctx.think_open = False
         ctx.think_closed = True
     out.append(ctx.chunk({"content": delta}))
-    return out
+    ctx.content_buffer.extend(out)
+    return []
 
 
 def _handle_output_item_done(
@@ -230,48 +301,56 @@ def _handle_output_item_done(
                 "Failed to update tool call state with raw arguments", exc_info=True,
             )
 
-    eff_args = ctx.ws_state.get(
-        call_id,
-        raw_args if isinstance(raw_args, (dict, list, str)) else {},
-    )
-    try:
-        args = _serialize_tool_args(eff_args)
-    except Exception:
-        logger.debug("Failed to serialize tool arguments", exc_info=True)
-        args = "{}"
-        args = "{}"
-
     if item.get("type") == "web_search_call" and ctx.verbose and ctx.vlog:
         try:
             ctx.vlog(
                 f"CM_TOOLS {SSE_OUTPUT_ITEM_DONE} web_search_call "
-                f"id={call_id} has_args={bool(args)}",
+                f"id={call_id} has_args={bool(raw_args)}",
             )
         except Exception:
             logger.debug("Failed to log verbose message for tool call", exc_info=True)
 
-    idx = ctx.ws_idx(call_id)
+    already_streamed = isinstance(call_id, str) and call_id in ctx.tc_streamed
+    out: list[bytes] = []
 
-    if not (
-        isinstance(call_id, str) and isinstance(name, str) and isinstance(args, str)
-    ):
-        return []
+    if not already_streamed:
+        eff_args = ctx.ws_state.get(
+            call_id,
+            raw_args if isinstance(raw_args, (dict, list, str)) else {},
+        )
+        try:
+            args = _serialize_tool_args(eff_args)
+        except Exception:
+            logger.debug("Failed to serialize tool arguments", exc_info=True)
+            args = "{}"
 
-    return [
-        ctx.chunk(
-            {
-                "tool_calls": [
-                    {
-                        "index": idx,
-                        "id": call_id,
-                        "type": "function",
-                        "function": {"name": name, "arguments": args},
-                    },
-                ],
-            },
-        ),
-        ctx.chunk({}, finish_reason="tool_calls"),
-    ]
+        idx = ctx.ws_idx(call_id)
+
+        if not (
+            isinstance(call_id, str)
+            and isinstance(name, str)
+            and isinstance(args, str)
+        ):
+            return []
+
+        out.append(
+            ctx.chunk(
+                {
+                    "tool_calls": [
+                        {
+                            "index": idx,
+                            "id": call_id,
+                            "type": "function",
+                            "function": {"name": name, "arguments": args},
+                        },
+                    ],
+                },
+            ),
+        )
+
+    out.append(ctx.chunk({}, finish_reason="tool_calls"))
+    ctx.sent_stop_chunk = True
+    return out
 
 
 def _handle_summary_part_added(
@@ -292,6 +371,9 @@ def _handle_reasoning_delta(
     evt: dict[str, Any],
     kind: str,
 ) -> list[bytes]:
+    if ctx.tool_call_detected:
+        return []
+
     delta_txt = evt.get("delta") or ""
     out: list[bytes] = []
 
@@ -328,7 +410,8 @@ def _handle_reasoning_delta(
         else:
             out.append(ctx.chunk({"reasoning": delta_txt}))
 
-    return out
+    ctx.content_buffer.extend(out)
+    return []
 
 
 def _handle_content_part_done(
@@ -350,8 +433,7 @@ def _handle_text_done(
     evt: dict[str, Any],
     kind: str,
 ) -> list[bytes]:
-    ctx.sent_stop_chunk = True
-    return [ctx.chunk({}, finish_reason="stop")]
+    return []
 
 
 def _handle_failed(
@@ -374,13 +456,14 @@ def _handle_completed(
     if m:
         ctx.upstream_usage = m
 
-    # Close unclosed think tags
-    if ctx.compat == "think-tags" and ctx.think_open and not ctx.think_closed:
-        out.append(ctx.chunk({"content": "</think>"}))
-        ctx.think_open = False
-        ctx.think_closed = True
+    if not ctx.tool_call_detected and ctx.content_buffer:
+        out.extend(ctx.content_buffer)
+        ctx.content_buffer.clear()
+        if ctx.compat == "think-tags" and ctx.think_open and not ctx.think_closed:
+            out.append(ctx.chunk({"content": "</think>"}))
+            ctx.think_open = False
+            ctx.think_closed = True
 
-    # Ensure stop chunk was sent
     if not ctx.sent_stop_chunk:
         out.append(ctx.chunk({}, finish_reason="stop"))
         ctx.sent_stop_chunk = True
@@ -404,7 +487,10 @@ def _handle_completed(
 _CHAT_DISPATCH: dict[
     str, Callable[[SSEChatContext, dict[str, Any], str], list[bytes]],
 ] = {
+    SSE_OUTPUT_ITEM_ADDED: _handle_output_item_added,
     SSE_OUTPUT_TEXT_DELTA: _handle_text_delta,
+    SSE_FUNCTION_CALL_ARGS_DELTA: _handle_function_call_args_delta,
+    SSE_FUNCTION_CALL_ARGS_DONE: _handle_function_call_args_delta,
     SSE_OUTPUT_ITEM_DONE: _handle_output_item_done,
     SSE_REASONING_SUMMARY_PART_ADDED: _handle_summary_part_added,
     SSE_REASONING_SUMMARY_TEXT_DELTA: _handle_reasoning_delta,

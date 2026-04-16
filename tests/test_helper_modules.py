@@ -39,12 +39,15 @@ from gptmock.infra.sse import (
     SSEChatContext,
     _handle_completed,
     _handle_content_part_done,
+    _handle_function_call_args_delta,
+    _handle_output_item_added,
     _handle_output_item_done,
     _handle_reasoning_delta,
     _handle_summary_part_added,
     _handle_web_search,
     _merge_ws_params,
     _serialize_tool_args,
+    sse_translate_chat,
     sse_translate_text,
 )
 from gptmock.schemas.messages import (
@@ -548,16 +551,32 @@ class TestSSEHelpers:
         _merge_ws_params({"q": "weather", "limit": 3, "include": ["a.com"]}, params)
         assert params == {"query": "weather", "max_results": 3, "domains": ["a.com"]}
 
-    def test_handle_web_search_and_output_item_done_emit_tool_calls(self) -> None:
+    def test_handle_web_search_accumulates_params_without_emitting(self) -> None:
         ctx = self._ctx()
-        frames = _handle_web_search(ctx, {"item_id": "call_1", "query": "weather"}, "response.output_item.added.web_search_call")
-        assert b'"name": "web_search"' in frames[0]
-        done_frames = _handle_web_search(ctx, {"item_id": "call_1", "query": "weather"}, "response.output_item.done.web_search_call.completed")
-        assert b'"finish_reason": "tool_calls"' in done_frames[-1]
+        frames = _handle_web_search(ctx, {"item_id": "ws_1", "query": "weather"}, "response.web_search_call.searching")
+        assert frames == []
+        assert ctx.ws_state.get("ws_1", {}).get("query") == "weather"
 
+        done_frames = _handle_web_search(ctx, {"item_id": "ws_1"}, "response.web_search_call.completed")
+        assert done_frames == []
+
+    def test_handle_output_item_done_emits_web_search_once(self) -> None:
+        ctx = self._ctx()
+        _handle_web_search(ctx, {"item_id": "ws_2", "query": "news"}, "response.web_search_call.searching")
+        frames = _handle_output_item_done(
+            ctx,
+            {"item": {"type": "web_search_call", "call_id": "ws_2", "arguments": {"query": "news"}}},
+            "response.output_item.done",
+        )
+        assert len(frames) == 2
+        assert b'"name": "web_search"' in frames[0]
+        assert b'"finish_reason": "tool_calls"' in frames[1]
+
+    def test_handle_output_item_done_emits_function_call(self) -> None:
+        ctx = self._ctx()
         item_frames = _handle_output_item_done(
             ctx,
-            {"item": {"type": "function_call", "id": "call_2", "name": "lookup", "arguments": {"city": "seoul"}}},
+            {"item": {"type": "function_call", "call_id": "call_2", "name": "lookup", "arguments": {"city": "seoul"}}},
             "response.output_item.done",
         )
         assert len(item_frames) == 2
@@ -565,20 +584,301 @@ class TestSSEHelpers:
         assert b'"finish_reason": "tool_calls"' in item_frames[1]
         assert _handle_output_item_done(ctx, {"item": {"type": "message"}}, "response.output_item.done") == []
 
-    def test_handle_reasoning_deltas_for_o3_think_tags_and_legacy(self) -> None:
+    def test_handle_output_item_added_emits_initial_tool_call_chunk(self) -> None:
+        ctx = self._ctx()
+        frames = _handle_output_item_added(
+            ctx,
+            {"item": {"type": "function_call", "id": "item_fc1", "call_id": "call_fc1", "name": "get_weather"}},
+            "response.output_item.added",
+        )
+        assert len(frames) == 1
+        assert b'"role": "assistant"' in frames[0]
+        assert b'"id": "call_fc1"' in frames[0]
+        assert b'"name": "get_weather"' in frames[0]
+        assert b'"arguments": ""' in frames[0]
+        assert "call_fc1" in ctx.tc_streamed
+        assert "item_fc1" in ctx.tc_streamed
+
+    def test_handle_output_item_added_registers_id_mapping_for_all_types(self) -> None:
+        ctx = self._ctx()
+        _handle_output_item_added(
+            ctx,
+            {"item": {"type": "web_search_call", "id": "item_ws1", "call_id": "call_ws1"}},
+            "response.output_item.added",
+        )
+        assert ctx.ws_index.get("item_ws1") == ctx.ws_index.get("call_ws1")
+        assert _handle_output_item_added(ctx, {"item": {"type": "message"}}, "response.output_item.added") == []
+
+    def test_handle_function_call_args_delta_uses_mapped_index(self) -> None:
+        ctx = self._ctx()
+        _handle_output_item_added(
+            ctx,
+            {"item": {"type": "function_call", "id": "item_77", "call_id": "call_77", "name": "fn"}},
+            "response.output_item.added",
+        )
+        name_frame = json.loads(b"".join(f for f in _handle_output_item_added(
+            ctx,
+            {"item": {"type": "function_call", "id": "item_77", "call_id": "call_77", "name": "fn"}},
+            "response.output_item.added",
+        )).decode().split("data: ", 1)[1].strip())
+        name_index = name_frame["choices"][0]["delta"]["tool_calls"][0]["index"]
+
+        args_frames = _handle_function_call_args_delta(
+            ctx,
+            {"delta": '{"q":', "item_id": "item_77"},
+            "response.function_call_arguments.delta",
+        )
+        args_frame = json.loads(args_frames[0].decode().split("data: ", 1)[1].strip())
+        args_index = args_frame["choices"][0]["delta"]["tool_calls"][0]["index"]
+
+        assert name_index == args_index
+
+    def test_handle_function_call_args_delta_ignores_empty(self) -> None:
+        ctx = self._ctx()
+        assert _handle_function_call_args_delta(ctx, {"delta": ""}, "response.function_call_arguments.delta") == []
+        assert _handle_function_call_args_delta(ctx, {}, "response.function_call_arguments.delta") == []
+
+    def test_handle_output_item_done_skips_reemission_for_streamed_calls(self) -> None:
+        ctx = self._ctx()
+        ctx.tc_streamed.add("call_fc3")
+        frames = _handle_output_item_done(
+            ctx,
+            {"item": {"type": "function_call", "call_id": "call_fc3", "name": "lookup", "arguments": '{"q":"hi"}'}},
+            "response.output_item.done",
+        )
+        assert len(frames) == 1
+        assert b'"finish_reason": "tool_calls"' in frames[0]
+        assert b'"name": "lookup"' not in frames[0]
+        assert ctx.sent_stop_chunk is True
+
+    def test_handle_output_item_done_sets_sent_stop_chunk(self) -> None:
+        ctx = self._ctx()
+        assert ctx.sent_stop_chunk is False
+        _handle_output_item_done(
+            ctx,
+            {"item": {"type": "function_call", "call_id": "call_fc4", "name": "fn", "arguments": "{}"}},
+            "response.output_item.done",
+        )
+        assert ctx.sent_stop_chunk is True
+
+    def test_handle_text_done_does_not_emit_stop(self) -> None:
+        from gptmock.infra.sse import _handle_text_done
+        ctx = self._ctx()
+        frames = _handle_text_done(ctx, {}, "response.output_text.done")
+        assert frames == []
+        assert ctx.sent_stop_chunk is False
+
+    def test_handle_completed_emits_stop_when_no_tool_calls(self) -> None:
+        ctx = self._ctx()
+        frames = _handle_completed(ctx, {"response": {}}, "response.completed")
+        assert any(b'"finish_reason": "stop"' in f for f in frames)
+        assert frames[-1] == b"data: [DONE]\n\n"
+
+    def test_handle_completed_does_not_duplicate_stop_after_tool_calls(self) -> None:
+        ctx = self._ctx()
+        ctx.sent_stop_chunk = True
+        frames = _handle_completed(ctx, {"response": {}}, "response.completed")
+        assert not any(b'"finish_reason": "stop"' in f for f in frames)
+        assert frames[-1] == b"data: [DONE]\n\n"
+
+    @pytest.mark.asyncio
+    async def test_spec_tc1_single_tool_call(self) -> None:
+        """TC1: Single tool_call — all indices 0, no content, finish_reason=tool_calls."""
+        lines = [
+            'data: {"type":"response.output_item.added","item":{"type":"message","id":"msg_1"},"response":{"id":"resp_1"}}',
+            'data: {"type":"response.output_item.added","item":{"type":"function_call","id":"item_fc","call_id":"call_abc123","name":"web_search"},"response":{"id":"resp_1"}}',
+            'data: {"type":"response.function_call_arguments.delta","delta":"{\\"query\\":","item_id":"item_fc"}',
+            'data: {"type":"response.function_call_arguments.delta","delta":"\\"Korean news\\"}","item_id":"item_fc"}',
+            'data: {"type":"response.output_item.done","item":{"type":"function_call","call_id":"call_abc123","name":"web_search","arguments":"{\\"query\\":\\"Korean news\\"}"}}',
+            'data: {"type":"response.completed","response":{"id":"resp_1"}}',
+        ]
+        upstream = _AsyncResponse(lines)
+        frames = [frame async for frame in sse_translate_chat(cast(Any, upstream), model="gpt-5", created=123)]
+
+        chunks = []
+        for frame in frames:
+            text = frame.decode()
+            if text.startswith("data: ") and not text.startswith("data: [DONE]"):
+                chunks.append(json.loads(text[6:].strip()))
+
+        tc_indices = set()
+        has_content = False
+        finish_reasons = []
+        for c in chunks:
+            delta = c["choices"][0]["delta"]
+            if "content" in delta and delta["content"]:
+                has_content = True
+            for tc in delta.get("tool_calls", []):
+                tc_indices.add(tc.get("index"))
+            fr = c["choices"][0].get("finish_reason")
+            if fr:
+                finish_reasons.append(fr)
+
+        assert tc_indices == {0}, f"All tool_call indices must be 0, got {tc_indices}"
+        assert not has_content, "No content should be emitted for tool_call responses"
+        assert finish_reasons == ["tool_calls"]
+        assert frames[-1] == b"data: [DONE]\n\n"
+
+    @pytest.mark.asyncio
+    async def test_spec_tc2_multiple_tool_calls(self) -> None:
+        """TC2: Two parallel tool_calls — index 0 and index 1, each name+args same index."""
+        lines = [
+            'data: {"type":"response.output_item.added","item":{"type":"function_call","id":"item_a","call_id":"call_aaa","name":"web_search"},"response":{"id":"resp_2"}}',
+            'data: {"type":"response.function_call_arguments.delta","delta":"{\\"query\\":\\"Korean news\\"}","item_id":"item_a"}',
+            'data: {"type":"response.output_item.added","item":{"type":"function_call","id":"item_b","call_id":"call_bbb","name":"get_weather"},"response":{"id":"resp_2"}}',
+            'data: {"type":"response.function_call_arguments.delta","delta":"{\\"city\\":\\"Seoul\\"}","item_id":"item_b"}',
+            'data: {"type":"response.output_item.done","item":{"type":"function_call","call_id":"call_aaa","name":"web_search","arguments":"{\\"query\\":\\"Korean news\\"}"}}',
+            'data: {"type":"response.output_item.done","item":{"type":"function_call","call_id":"call_bbb","name":"get_weather","arguments":"{\\"city\\":\\"Seoul\\"}"}}',
+            'data: {"type":"response.completed","response":{"id":"resp_2"}}',
+        ]
+        upstream = _AsyncResponse(lines)
+        frames = [frame async for frame in sse_translate_chat(cast(Any, upstream), model="gpt-5", created=123)]
+
+        chunks = []
+        for frame in frames:
+            text = frame.decode()
+            if text.startswith("data: ") and not text.startswith("data: [DONE]"):
+                chunks.append(json.loads(text[6:].strip()))
+
+        tc_by_index: dict[int, dict[str, Any]] = {}
+        for c in chunks:
+            for tc in c["choices"][0]["delta"].get("tool_calls", []):
+                idx = tc.get("index")
+                if idx is not None:
+                    entry = tc_by_index.setdefault(idx, {"names": [], "args": []})
+                    fn = tc.get("function", {})
+                    if "name" in fn:
+                        entry["names"].append(fn["name"])
+                    if "arguments" in fn and fn["arguments"]:
+                        entry["args"].append(fn["arguments"])
+
+        assert 0 in tc_by_index and 1 in tc_by_index, f"Expected indices 0 and 1, got {set(tc_by_index)}"
+        assert "web_search" in tc_by_index[0]["names"]
+        assert "get_weather" in tc_by_index[1]["names"]
+        assert len(tc_by_index[0]["args"]) > 0
+        assert len(tc_by_index[1]["args"]) > 0
+
+    @pytest.mark.asyncio
+    async def test_spec_tc3_no_tool_call_text_only(self) -> None:
+        """TC3: No tool_call — content streaming, finish_reason=stop, no tool_calls delta."""
+        lines = [
+            'data: {"type":"response.output_item.added","item":{"type":"message","id":"msg_1"},"response":{"id":"resp_3"}}',
+            'data: {"type":"response.output_text.delta","delta":"Hello, ","response":{"id":"resp_3"}}',
+            'data: {"type":"response.output_text.delta","delta":"how are you?","response":{"id":"resp_3"}}',
+            'data: {"type":"response.output_text.done"}',
+            'data: {"type":"response.completed","response":{"id":"resp_3"}}',
+        ]
+        upstream = _AsyncResponse(lines)
+        frames = [frame async for frame in sse_translate_chat(cast(Any, upstream), model="gpt-5", created=123)]
+
+        chunks = []
+        for frame in frames:
+            text = frame.decode()
+            if text.startswith("data: ") and not text.startswith("data: [DONE]"):
+                chunks.append(json.loads(text[6:].strip()))
+
+        content_parts = []
+        has_tool_calls = False
+        finish_reasons = []
+        for c in chunks:
+            delta = c["choices"][0]["delta"]
+            if "content" in delta:
+                content_parts.append(delta["content"])
+            if "tool_calls" in delta:
+                has_tool_calls = True
+            fr = c["choices"][0].get("finish_reason")
+            if fr:
+                finish_reasons.append(fr)
+
+        assert "".join(content_parts) == "Hello, how are you?"
+        assert not has_tool_calls
+        assert finish_reasons == ["stop"]
+
+    @pytest.mark.asyncio
+    async def test_spec_tc4_thinking_then_tool_call_content_suppressed(self) -> None:
+        """TC4: Thinking + tool_call — content suppressed, only tool_call chunks emitted."""
+        lines = [
+            'data: {"type":"response.output_item.added","item":{"type":"message","id":"msg_1"},"response":{"id":"resp_4"}}',
+            'data: {"type":"response.reasoning_text.delta","delta":"I need to search...","response":{"id":"resp_4"}}',
+            'data: {"type":"response.output_text.delta","delta":"Let me search for that.","response":{"id":"resp_4"}}',
+            'data: {"type":"response.output_text.done"}',
+            'data: {"type":"response.output_item.added","item":{"type":"function_call","id":"item_tc4","call_id":"call_tc4","name":"web_search"},"response":{"id":"resp_4"}}',
+            'data: {"type":"response.function_call_arguments.delta","delta":"{\\"query\\":\\"Korean news\\"}","item_id":"item_tc4"}',
+            'data: {"type":"response.output_item.done","item":{"type":"function_call","call_id":"call_tc4","name":"web_search","arguments":"{\\"query\\":\\"Korean news\\"}"}}',
+            'data: {"type":"response.completed","response":{"id":"resp_4"}}',
+        ]
+        upstream = _AsyncResponse(lines)
+        frames = [frame async for frame in sse_translate_chat(cast(Any, upstream), model="gpt-5", created=123)]
+
+        chunks = []
+        for frame in frames:
+            text = frame.decode()
+            if text.startswith("data: ") and not text.startswith("data: [DONE]"):
+                chunks.append(json.loads(text[6:].strip()))
+
+        has_content = False
+        tc_indices = set()
+        finish_reasons = []
+        for c in chunks:
+            delta = c["choices"][0]["delta"]
+            if "content" in delta and delta["content"]:
+                has_content = True
+            for tc in delta.get("tool_calls", []):
+                tc_indices.add(tc.get("index"))
+            fr = c["choices"][0].get("finish_reason")
+            if fr:
+                finish_reasons.append(fr)
+
+        assert not has_content, "Content should be suppressed when tool_calls are present"
+        assert tc_indices == {0}
+        assert finish_reasons == ["tool_calls"]
+
+    def test_handle_reasoning_deltas_buffer_to_content_buffer(self) -> None:
         o3 = self._ctx("o3")
         _handle_summary_part_added(o3, {}, "response.reasoning_summary_part.added")
         frames = _handle_reasoning_delta(o3, {"delta": "first"}, "response.reasoning_summary_text.delta")
-        assert b'"reasoning"' in frames[0]
+        assert frames == []
+        assert any(b'"reasoning"' in f for f in o3.content_buffer)
 
         think = self._ctx("think-tags")
-        frames = _handle_reasoning_delta(think, {"delta": "hidden"}, "response.reasoning_text.delta")
-        assert b"<think>" in frames[0]
-        assert b"hidden" in frames[1]
+        _handle_reasoning_delta(think, {"delta": "hidden"}, "response.reasoning_text.delta")
+        assert any(b"<think>" in f for f in think.content_buffer)
+        assert any(b"hidden" in f for f in think.content_buffer)
 
         legacy = self._ctx("legacy")
-        frames = _handle_reasoning_delta(legacy, {"delta": "summary"}, "response.reasoning_summary_text.delta")
-        assert b'"reasoning_summary": "summary"' in frames[0]
+        _handle_reasoning_delta(legacy, {"delta": "summary"}, "response.reasoning_summary_text.delta")
+        assert any(b'"reasoning_summary": "summary"' in f for f in legacy.content_buffer)
+
+    def test_handle_text_delta_buffers_content(self) -> None:
+        from gptmock.infra.sse import _handle_text_delta
+        ctx = self._ctx()
+        frames = _handle_text_delta(ctx, {"delta": "hello"}, "response.output_text.delta")
+        assert frames == []
+        assert len(ctx.content_buffer) == 1
+        assert b'"content": "hello"' in ctx.content_buffer[0]
+
+    def test_handle_text_delta_suppressed_after_tool_call(self) -> None:
+        from gptmock.infra.sse import _handle_text_delta
+        ctx = self._ctx()
+        ctx.tool_call_detected = True
+        frames = _handle_text_delta(ctx, {"delta": "suppressed"}, "response.output_text.delta")
+        assert frames == []
+        assert len(ctx.content_buffer) == 0
+
+    def test_handle_completed_flushes_content_buffer_when_no_tool_calls(self) -> None:
+        ctx = self._ctx()
+        ctx.content_buffer = [ctx.chunk({"content": "buffered text"})]
+        frames = _handle_completed(ctx, {"response": {}}, "response.completed")
+        assert any(b'"content": "buffered text"' in f for f in frames)
+        assert any(b'"finish_reason": "stop"' in f for f in frames)
+
+    def test_handle_completed_discards_content_buffer_when_tool_calls(self) -> None:
+        ctx = self._ctx()
+        ctx.tool_call_detected = True
+        ctx.sent_stop_chunk = True
+        ctx.content_buffer = [ctx.chunk({"content": "should be discarded"})]
+        frames = _handle_completed(ctx, {"response": {}}, "response.completed")
+        assert not any(b'"content"' in f for f in frames)
 
     def test_handle_content_done_and_completed_emit_annotations_usage_and_done(self) -> None:
         ctx = self._ctx(include_usage=True)
@@ -586,13 +886,13 @@ class TestSSEHelpers:
         assert b'"annotations"' in ann[0]
         assert _handle_content_part_done(ctx, {"part": {"type": "output_text"}}, "response.content_part.done") == []
 
-        ctx.think_open = True
+        ctx.content_buffer = [ctx.chunk({"content": "text"})]
         completed = _handle_completed(
             ctx,
             {"response": {"usage": {"input_tokens": 2, "output_tokens": 3, "total_tokens": 5}}},
             "response.completed",
         )
-        assert any(b"</think>" in frame for frame in completed)
+        assert any(b'"content": "text"' in frame for frame in completed)
         assert any(b'"usage"' in frame for frame in completed)
         assert completed[-1] == b"data: [DONE]\n\n"
 
