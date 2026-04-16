@@ -219,6 +219,10 @@ curl http://127.0.0.1:8000/v1/chat/completions \
 | `gpt-5.3-codex-spark` | `low` / `medium` / `high` / `xhigh` | ✅ Supported |
 | `gpt-5.4` | `low` / `medium` / `high` / `xhigh` | ✅ Supported |
 | `gpt-5.4-mini` | `low` / `medium` / `high` / `xhigh` | ✅ Supported |
+| `gpt-5.4-fast` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (priority tier) |
+| `gpt-5.4-mini-fast` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (priority tier) |
+
+> **Fast variants** (`*-fast`) are synthetic aliases that map to the base model plus `service_tier="priority"` in the upstream payload. No separate endpoint or auth is required — the ChatGPT backend accepts them as paid-tier priority requests.
 
 ### Deprecated / Unsupported Models
 

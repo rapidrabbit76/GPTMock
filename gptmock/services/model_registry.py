@@ -31,9 +31,18 @@ MODEL_GROUPS: list[tuple[str, list[str]]] = [
     ("gpt-5.1-codex-max", ["xhigh", "high", "medium", "low"]),
     ("gpt-5.4", ["xhigh", "high", "medium", "low"]),
     ("gpt-5.4-mini", ["xhigh", "high", "medium", "low"]),
+    ("gpt-5.4-fast", ["xhigh", "high", "medium", "low"]),
+    ("gpt-5.4-mini-fast", ["xhigh", "high", "medium", "low"]),
 ]
 
 _BASE_MODEL_IDS: frozenset[str] = frozenset(base for base, _ in MODEL_GROUPS)
+
+FAST_MODEL_ALIASES: dict[str, str] = {
+    "gpt-5.4-fast": "gpt-5.4",
+    "gpt-5.4-mini-fast": "gpt-5.4-mini",
+}
+
+FAST_SERVICE_TIER: str = "priority"
 
 
 def normalize_model_name(name: str | None, debug_model: str | None = None) -> str:
@@ -81,6 +90,12 @@ def normalize_model_name(name: str | None, debug_model: str | None = None) -> st
         "gpt5.4-mini": "gpt-5.4-mini",
         "gpt-5.4-mini": "gpt-5.4-mini",
         "gpt-5.4-mini-latest": "gpt-5.4-mini",
+        "gpt5.4-fast": "gpt-5.4-fast",
+        "gpt-5.4-fast": "gpt-5.4-fast",
+        "gpt-5.4-fast-latest": "gpt-5.4-fast",
+        "gpt5.4-mini-fast": "gpt-5.4-mini-fast",
+        "gpt-5.4-mini-fast": "gpt-5.4-mini-fast",
+        "gpt-5.4-mini-fast-latest": "gpt-5.4-mini-fast",
     }
     return mapping.get(base, base)
 
@@ -98,6 +113,13 @@ def get_instructions_for_model(
         if isinstance(gpt5_codex_instructions, str) and gpt5_codex_instructions.strip():
             return gpt5_codex_instructions
     return base_instructions
+
+
+def resolve_upstream_model(model: str) -> tuple[str, str | None]:
+    """Return (upstream_model_id, service_tier); fast aliases map to base + priority."""
+    if model in FAST_MODEL_ALIASES:
+        return FAST_MODEL_ALIASES[model], FAST_SERVICE_TIER
+    return model, None
 
 
 def get_model_list(
