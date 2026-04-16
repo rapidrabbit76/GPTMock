@@ -53,10 +53,13 @@ class TestAppBootstrap:
         assert data["object"] == "list"
         assert isinstance(data["data"], list)
         assert len(data["data"]) > 0
-        # Each model entry must have id and object fields
         for m in data["data"]:
             assert "id" in m, f"model entry missing 'id': {m}"
             assert m["object"] == "model"
+            assert "reasoning" in m, f"model entry missing 'reasoning': {m}"
+            r = m["reasoning"]
+            assert isinstance(r.get("supported_efforts"), list)
+            assert r.get("default_effort") in r["supported_efforts"]
 
     def test_ollama_version(self, client: TestClient) -> None:
         resp = client.get("/api/version")
@@ -274,6 +277,36 @@ class TestModelRegistry:
             assert "id" in m
             assert m["object"] == "model"
             assert "owned_by" in m
+            assert "reasoning" in m
+            r = m["reasoning"]
+            assert isinstance(r["supported_efforts"], list)
+            assert len(r["supported_efforts"]) > 0
+            assert r["default_effort"] in r["supported_efforts"]
+
+    def test_get_openai_models_reasoning_per_family(self) -> None:
+        models = {m["id"]: m for m in get_openai_models(expose_reasoning=False)}
+
+        assert models["gpt-5"]["reasoning"]["supported_efforts"] == ["minimal", "low", "medium", "high"]
+        assert models["gpt-5"]["reasoning"]["default_effort"] == "medium"
+
+        assert models["gpt-5.1"]["reasoning"]["supported_efforts"] == ["low", "medium", "high"]
+
+        assert "xhigh" in models["gpt-5.4"]["reasoning"]["supported_efforts"]
+        assert "minimal" not in models["gpt-5.4"]["reasoning"]["supported_efforts"]
+
+        assert models["gpt-5-codex"]["reasoning"]["supported_efforts"] == ["low", "medium", "high"]
+
+    def test_get_openai_models_reasoning_for_variants(self) -> None:
+        models = {m["id"]: m for m in get_openai_models(expose_reasoning=True)}
+
+        assert models["gpt-5-high"]["reasoning"] == {
+            "supported_efforts": ["high"],
+            "default_effort": "high",
+        }
+        assert models["gpt-5.4-xhigh"]["reasoning"] == {
+            "supported_efforts": ["xhigh"],
+            "default_effort": "xhigh",
+        }
 
     def test_get_ollama_models_structure(self) -> None:
         models = get_ollama_models(expose_reasoning=False)

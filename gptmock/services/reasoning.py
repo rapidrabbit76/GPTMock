@@ -4,6 +4,13 @@ from typing import Any
 
 DEFAULT_REASONING_EFFORTS: set[str] = {"minimal", "low", "medium", "high", "xhigh"}
 
+EFFORT_ORDER: tuple[str, ...] = ("minimal", "low", "medium", "high", "xhigh")
+
+
+def sort_efforts(efforts: set[str] | list[str]) -> list[str]:
+    order = {e: i for i, e in enumerate(EFFORT_ORDER)}
+    return sorted(efforts, key=lambda e: order.get(e, len(EFFORT_ORDER)))
+
 
 def allowed_efforts_for_model(model: str | None) -> set[str]:
     base = (model or "").strip().lower()
