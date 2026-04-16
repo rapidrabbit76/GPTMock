@@ -172,7 +172,7 @@ client = OpenAI(
 )
 
 resp = client.chat.completions.create(
-    model="gpt-5",
+    model="gpt-5.4",
     messages=[{"role": "user", "content": "hello world"}]
 )
 print(resp.choices[0].message.content)
@@ -186,7 +186,7 @@ from langchain_openai import ChatOpenAI
 llm = ChatOpenAI(
     base_url="http://127.0.0.1:8000/v1",
     api_key="anything",
-    model="gpt-5",
+    model="gpt-5.4",
 )
 response = llm.invoke("hello world")
 print(response.content)
@@ -198,7 +198,7 @@ print(response.content)
 curl http://127.0.0.1:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gpt-5",
+    "model": "gpt-5.4",
     "messages": [{"role": "user", "content": "hello world"}]
   }'
 ```
@@ -209,26 +209,28 @@ curl http://127.0.0.1:8000/v1/chat/completions \
 
 | Model | Reasoning Efforts | Status |
 |-------|-------------------|--------|
-| `gpt-5` | `minimal` / `low` / `medium` / `high` | ✅ Supported |
-| `gpt-5.1` | `low` / `medium` / `high` | ✅ Supported |
-| `gpt-5.2` | `low` / `medium` / `high` / `xhigh` | ✅ Supported |
-| `gpt-5-codex` | `low` / `medium` / `high` | ✅ Supported |
-| `gpt-5.1-codex` | `low` / `medium` / `high` | ✅ Supported |
-| `gpt-5.1-codex-mini` | `low` / `medium` / `high` | ✅ Supported |
-| `gpt-5.1-codex-max` | `low` / `medium` / `high` / `xhigh` | ✅ Supported |
-| `gpt-5.2-codex` | `low` / `medium` / `high` / `xhigh` | ✅ Supported |
-| `gpt-5.3-codex` | `low` / `medium` / `high` / `xhigh` | ✅ Supported |
-| `gpt-5.3-codex-spark` | `low` / `medium` / `high` / `xhigh` | ✅ Supported |
-| `gpt-5.4` | `low` / `medium` / `high` / `xhigh` | ✅ Supported |
-| `gpt-5.4-mini` | `low` / `medium` / `high` / `xhigh` | ✅ Supported |
-| `gpt-5.4-fast` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (priority tier) |
-| `gpt-5.4-mini-fast` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (priority tier) |
+| `gpt-5` | `minimal` / `low` / `medium` / `high` | ⚠️ Recognized by GPTMock, currently rejected upstream for ChatGPT Codex accounts |
+| `gpt-5.1` | `low` / `medium` / `high` | ⚠️ Recognized by GPTMock, currently rejected upstream for ChatGPT Codex accounts |
+| `gpt-5.2` | `low` / `medium` / `high` / `xhigh` | ✅ Verified upstream |
+| `gpt-5-codex` | `low` / `medium` / `high` | ⚠️ Recognized by GPTMock, currently rejected upstream for ChatGPT Codex accounts |
+| `gpt-5.1-codex` | `low` / `medium` / `high` | ⚠️ Recognized by GPTMock, currently rejected upstream for ChatGPT Codex accounts |
+| `gpt-5.1-codex-mini` | `low` / `medium` / `high` | ⚠️ Recognized by GPTMock, currently rejected upstream for ChatGPT Codex accounts |
+| `gpt-5.1-codex-max` | `low` / `medium` / `high` / `xhigh` | ⚠️ Recognized by GPTMock, currently rejected upstream for ChatGPT Codex accounts |
+| `gpt-5.2-codex` | `low` / `medium` / `high` / `xhigh` | ⚠️ Recognized by GPTMock, currently rejected upstream for ChatGPT Codex accounts |
+| `gpt-5.3-codex` | `low` / `medium` / `high` / `xhigh` | ✅ Verified upstream |
+| `gpt-5.3-codex-spark` | `low` / `medium` / `high` / `xhigh` | ✅ Verified upstream |
+| `gpt-5.4` | `low` / `medium` / `high` / `xhigh` | ✅ Verified upstream |
+| `gpt-5.4-mini` | `low` / `medium` / `high` / `xhigh` | ✅ Verified upstream |
+| `gpt-5.4-fast` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (priority tier alias of `gpt-5.4`) |
+| `gpt-5.4-mini-fast` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (priority tier alias of `gpt-5.4-mini`) |
 
 > **Fast variants** (`*-fast`) are synthetic aliases that map to the base model plus `service_tier="priority"` in the upstream payload. No separate endpoint or auth is required — the ChatGPT backend accepts them as paid-tier priority requests.
 
+> **Upstream availability note:** model availability can change independently of GPTMock releases. GPTMock may recognize a model ID even when the current ChatGPT Codex backend rejects it for a specific account or subscription. On 2026-04-17, direct probe requests against the current upstream accepted `gpt-5.2`, `gpt-5.3-codex`, `gpt-5.3-codex-spark`, `gpt-5.4`, and `gpt-5.4-mini`, while rejecting `gpt-5`, `gpt-5.1`, `gpt-5-codex`, `gpt-5.1-codex`, `gpt-5.1-codex-mini`, `gpt-5.1-codex-max`, and `gpt-5.2-codex` with: `The '<model>' model is not supported when using Codex with a ChatGPT account.`
+
 ### Deprecated / Unsupported Models
 
-None at this time.
+None hardcoded in GPTMock at this time. See the upstream availability note above for models that are currently rejected by the ChatGPT Codex backend.
 ---
 
 ## API Endpoints
