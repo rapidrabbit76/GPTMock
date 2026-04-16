@@ -164,9 +164,11 @@ async def responses_create(
 async def list_models(
     settings: Settings = Depends(get_settings),
 ):
-    """List available models in OpenAI format.
-    """
-    models = get_openai_models(expose_reasoning=settings.expose_reasoning_models)
+    """List available models in OpenAI format."""
+    models = get_openai_models(
+        expose_reasoning=settings.expose_reasoning_models,
+        default_effort=settings.reasoning_effort,
+    )
 
     response = {
         "object": "list",

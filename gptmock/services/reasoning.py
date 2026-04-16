@@ -12,11 +12,21 @@ def sort_efforts(efforts: set[str] | list[str]) -> list[str]:
     return sorted(efforts, key=lambda e: order.get(e, len(EFFORT_ORDER)))
 
 
+def strip_effort_suffix(model: str) -> str:
+    base = model.split(":", 1)[0]
+    for sep in ("-", "_"):
+        for effort in EFFORT_ORDER:
+            suffix = f"{sep}{effort}"
+            if base.endswith(suffix):
+                return base[: -len(suffix)]
+    return base
+
+
 def allowed_efforts_for_model(model: str | None) -> set[str]:
-    base = (model or "").strip().lower()
-    if not base:
+    raw = (model or "").strip().lower()
+    if not raw:
         return DEFAULT_REASONING_EFFORTS
-    normalized = base.split(":", 1)[0]
+    normalized = strip_effort_suffix(raw)
     if normalized.startswith(("gpt-5.4", "gpt-5.3", "gpt-5.2")):
         return {"low", "medium", "high", "xhigh"}
     if normalized.startswith("gpt-5.1-codex-max"):
