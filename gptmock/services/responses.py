@@ -26,6 +26,7 @@ from gptmock.services.chat import ChatCompletionError
 from gptmock.services.model_registry import (
     get_instructions_for_model,
     normalize_model_name,
+    resolve_upstream_model,
 )
 from gptmock.services.reasoning import allowed_efforts_for_model, build_reasoning_param
 from gptmock.services.upstream import UpstreamError, send_upstream_request
@@ -462,8 +463,10 @@ async def process_responses_api(
     if isinstance(reasoning_param, dict):
         include.append("reasoning.encrypted_content")
 
+    upstream_model, service_tier = resolve_upstream_model(model)
+
     upstream_payload: dict[str, Any] = {
-        "model": model,
+        "model": upstream_model,
         "instructions": instructions,
         "input": input_items,
         "tools": tools,
@@ -474,6 +477,8 @@ async def process_responses_api(
         "stream": True,
         "prompt_cache_key": session_id,
     }
+    if service_tier is not None:
+        upstream_payload["service_tier"] = service_tier
     if isinstance(text_obj, dict):
         upstream_payload["text"] = text_obj
     if include:
