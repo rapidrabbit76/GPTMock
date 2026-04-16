@@ -603,16 +603,18 @@ def main() -> None:
     )
     p_serve.add_argument(
         "--reasoning-compat",
-        choices=["legacy", "o3", "think-tags", "current"],
+        choices=["legacy", "o3", "think-tags", "current", "standard", "openai"],
         default=(
             _env_with_legacy(
                 "GPTMOCK_REASONING_COMPAT", "CHATGPT_LOCAL_REASONING_COMPAT",
             )
-            or "think-tags"
+            or "standard"
         ).lower(),
         help=(
-            "Compatibility mode for exposing reasoning to clients (legacy|o3|think-tags). "
-            "'current' is accepted as an alias for 'legacy'"
+            "Compatibility mode for exposing reasoning to clients "
+            "(standard|legacy|o3|think-tags). 'standard' (default) emits "
+            "delta.reasoning_content per the de-facto OpenAI-compat convention. "
+            "'openai' is an alias for 'standard'. 'current' is accepted as an alias for 'legacy'."
         ),
     )
     p_serve.add_argument(

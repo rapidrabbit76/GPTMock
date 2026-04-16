@@ -7,6 +7,7 @@ CHATGPT_LOCAL_* legacy aliases in the CLI layer.
 
 from __future__ import annotations
 
+import argparse
 import sys
 from unittest.mock import patch
 
@@ -169,7 +170,7 @@ class TestEnvInt:
 class TestArgparseEnvDefaults:
     """Verify that argparse defaults honour GPTMOCK_* over CHATGPT_LOCAL_*."""
 
-    def _parse_serve(self, env: dict[str, str]) -> object:
+    def _parse_serve(self, env: dict[str, str]) -> argparse.Namespace:
         import argparse
 
         with patch.dict("os.environ", env, clear=True):
@@ -208,14 +209,14 @@ class TestArgparseEnvDefaults:
             )
             p.add_argument(
                 "--reasoning-compat",
-                choices=["legacy", "o3", "think-tags", "current"],
+                choices=["legacy", "o3", "think-tags", "current", "standard", "openai"],
                 default=(
                     cli._env_with_legacy(
                         "GPTMOCK_REASONING_COMPAT",
                         "CHATGPT_LOCAL_REASONING_COMPAT",
-                        "think-tags",
+                        "standard",
                     )
-                    or "think-tags"
+                    or "standard"
                 ).lower(),
             )
             p.add_argument(
@@ -291,6 +292,6 @@ class TestArgparseEnvDefaults:
         args = self._parse_serve({})
         assert args.reasoning_effort == "medium"
         assert args.reasoning_summary == "auto"
-        assert args.reasoning_compat == "think-tags"
+        assert args.reasoning_compat == "standard"
         assert args.expose_reasoning_models is False
         assert args.enable_web_search is False

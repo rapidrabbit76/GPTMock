@@ -3,6 +3,87 @@ from __future__ import annotations
 import base64
 from typing import Any
 
+_TOOL_NAME_LIMIT = 64
+
+
+def _base_short_candidate(name: str) -> str:
+    if len(name) <= _TOOL_NAME_LIMIT:
+        return name
+    if name.startswith("mcp__"):
+        idx = name.rfind("__")
+        if idx > 0:
+            candidate = f"mcp__{name[idx + 2:]}"
+            return candidate[:_TOOL_NAME_LIMIT] if len(candidate) > _TOOL_NAME_LIMIT else candidate
+    return name[:_TOOL_NAME_LIMIT]
+
+
+def build_short_name_map(names: list[str]) -> dict[str, str]:
+    """Map original names to unique shortened names (<=64 chars)."""
+    used: set[str] = set()
+    mapping: dict[str, str] = {}
+
+    for name in names:
+        candidate = _base_short_candidate(name)
+        if candidate in used:
+            base = candidate
+            i = 1
+            while True:
+                suffix = f"_{i}"
+                allowed = max(0, _TOOL_NAME_LIMIT - len(suffix))
+                trimmed = base[:allowed] if len(base) > allowed else base
+                unique_candidate = trimmed + suffix
+                if unique_candidate not in used:
+                    candidate = unique_candidate
+                    break
+                i += 1
+        used.add(candidate)
+        mapping[name] = candidate
+    return mapping
+
+
+def convert_tools_with_mapping(tools: Any) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    out: list[dict[str, Any]] = []
+    if not isinstance(tools, list):
+        return out, {}
+
+    original_names: list[str] = []
+    for tool in tools:
+        if not isinstance(tool, dict):
+            continue
+        if tool.get("type") != "function":
+            continue
+        fn = tool.get("function") if isinstance(tool.get("function"), dict) else {}
+        name = fn.get("name") if isinstance(fn, dict) else None
+        if isinstance(name, str) and name:
+            original_names.append(name)
+
+    short_name_map = build_short_name_map(original_names)
+
+    for tool in tools:
+        if not isinstance(tool, dict):
+            continue
+        if tool.get("type") != "function":
+            continue
+        fn = tool.get("function") if isinstance(tool.get("function"), dict) else {}
+        name = fn.get("name") if isinstance(fn, dict) else None
+        if not isinstance(name, str) or not name:
+            continue
+        desc = fn.get("description") if isinstance(fn, dict) else None
+        params = fn.get("parameters") if isinstance(fn, dict) else None
+        if not isinstance(params, dict):
+            params = {"type": "object", "properties": {}}
+        out.append(
+            {
+                "type": "function",
+                "name": short_name_map.get(name, name),
+                "description": desc or "",
+                "strict": False,
+                "parameters": params,
+            },
+        )
+
+    return out, short_name_map
+
 
 def _normalize_image_data_url(url: str) -> str:
     try:
@@ -137,29 +218,5 @@ def convert_chat_messages_to_responses_input(
 
 
 def convert_tools_chat_to_responses(tools: Any) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
-    if not isinstance(tools, list):
-        return out
-    for t in tools:
-        if not isinstance(t, dict):
-            continue
-        if t.get("type") != "function":
-            continue
-        fn = t.get("function") if isinstance(t.get("function"), dict) else {}
-        name = fn.get("name") if isinstance(fn, dict) else None
-        if not isinstance(name, str) or not name:
-            continue
-        desc = fn.get("description") if isinstance(fn, dict) else None
-        params = fn.get("parameters") if isinstance(fn, dict) else None
-        if not isinstance(params, dict):
-            params = {"type": "object", "properties": {}}
-        out.append(
-            {
-                "type": "function",
-                "name": name,
-                "description": desc or "",
-                "strict": False,
-                "parameters": params,
-            },
-        )
+    out, _ = convert_tools_with_mapping(tools)
     return out

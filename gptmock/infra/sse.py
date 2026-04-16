@@ -52,6 +52,10 @@ class SSEChatContext:
     pending_summary_paragraph: bool = False
     done: bool = False
     upstream_usage: dict[str, int] | None = None
+    role_sent: bool = False
+    args_streamed: dict[str, bool] = field(default_factory=dict)
+    pending_args: dict[str, list[str]] = field(default_factory=dict)
+    tool_name_reverse: dict[str, str] = field(default_factory=dict)
 
     # Web-search tool call state
     ws_state: dict[str, Any] = field(default_factory=dict)
@@ -205,26 +209,39 @@ def _handle_output_item_added(
     name = item.get("name") or ""
     if not isinstance(name, str):
         return []
+    name = ctx.tool_name_reverse.get(name, name)
 
     ctx.tc_streamed.add(call_id)
     if isinstance(item_id, str) and item_id:
         ctx.tc_streamed.add(item_id)
 
-    return [
-        ctx.chunk(
+    delta_obj: dict[str, Any] = {
+        "tool_calls": [
             {
-                "role": "assistant",
-                "tool_calls": [
-                    {
-                        "index": idx,
-                        "id": call_id,
-                        "type": "function",
-                        "function": {"name": name, "arguments": ""},
-                    },
-                ],
+                "index": idx,
+                "id": call_id,
+                "type": "function",
+                "function": {"name": name, "arguments": ""},
             },
-        ),
-    ]
+        ],
+    }
+    if not ctx.role_sent:
+        delta_obj["role"] = "assistant"
+        ctx.role_sent = True
+
+    frames = [ctx.chunk(delta_obj)]
+
+    buffered = ctx.pending_args.pop(call_id, None) or ctx.pending_args.pop(item_id, None)
+    if buffered:
+        for chunk_str in buffered:
+            ctx.args_streamed[call_id] = True
+            frames.append(
+                ctx.chunk(
+                    {"tool_calls": [{"index": idx, "function": {"arguments": chunk_str}}]},
+                ),
+            )
+
+    return frames
 
 
 def _handle_function_call_args_delta(
@@ -234,8 +251,6 @@ def _handle_function_call_args_delta(
 ) -> list[bytes]:
     raw = evt.get("delta")
     if not isinstance(raw, str) or not raw:
-        raw = evt.get("arguments")
-    if not isinstance(raw, str) or not raw:
         return []
 
     call_id = evt.get("item_id") or evt.get("call_id") or ""
@@ -243,13 +258,10 @@ def _handle_function_call_args_delta(
         return []
 
     if call_id not in ctx.ws_index:
-        logger.debug(
-            "function_call_arguments.%s before output_item.added for %s; dropping",
-            kind,
-            call_id,
-        )
+        ctx.pending_args.setdefault(call_id, []).append(raw)
         return []
 
+    ctx.args_streamed[call_id] = True
     idx = ctx.ws_idx(call_id)
     ctx.tc_streamed.add(call_id)
 
@@ -267,21 +279,60 @@ def _handle_function_call_args_delta(
     ]
 
 
+def _handle_function_call_args_done(
+    ctx: SSEChatContext,
+    evt: dict[str, Any],
+    kind: str,
+) -> list[bytes]:
+    call_id = evt.get("item_id") or evt.get("call_id") or ""
+    if not isinstance(call_id, str) or not call_id:
+        return []
+
+    if ctx.args_streamed.get(call_id):
+        return []
+
+    full_args = evt.get("arguments")
+    if not isinstance(full_args, str) or not full_args:
+        return []
+
+    if call_id not in ctx.ws_index:
+        ctx.pending_args.setdefault(call_id, []).append(full_args)
+        return []
+
+    idx = ctx.ws_idx(call_id)
+    ctx.tc_streamed.add(call_id)
+    return [
+        ctx.chunk(
+            {
+                "tool_calls": [
+                    {
+                        "index": idx,
+                        "function": {"arguments": full_args},
+                    },
+                ],
+            },
+        ),
+    ]
+
+
 def _handle_text_delta(
     ctx: SSEChatContext,
     evt: dict[str, Any],
     kind: str,
 ) -> list[bytes]:
-    if ctx.tool_call_detected:
-        return []
-
     out: list[bytes] = []
     delta = evt.get("delta") or ""
+    if not isinstance(delta, str) or not delta:
+        return []
     if ctx.compat == "think-tags" and ctx.think_open and not ctx.think_closed:
         out.append(ctx.chunk({"content": "</think>"}))
         ctx.think_open = False
         ctx.think_closed = True
-    out.append(ctx.chunk({"content": delta}))
+    delta_obj: dict[str, Any] = {"content": delta}
+    if not ctx.role_sent:
+        delta_obj = {"role": "assistant", "content": delta}
+        ctx.role_sent = True
+    out.append(ctx.chunk(delta_obj))
     return out
 
 
@@ -319,6 +370,8 @@ def _handle_output_item_done(
     name = item.get("name") or (
         "web_search" if item.get("type") == "web_search_call" else ""
     )
+    if isinstance(name, str):
+        name = ctx.tool_name_reverse.get(name, name)
     raw_args = item.get("arguments") or item.get("parameters")
 
     if isinstance(raw_args, dict):
@@ -388,7 +441,7 @@ def _handle_summary_part_added(
     evt: dict[str, Any],
     kind: str,
 ) -> list[bytes]:
-    if ctx.compat in ("think-tags", "o3"):
+    if ctx.compat in ("think-tags", "o3", "standard", "openai"):
         if ctx.saw_any_summary:
             ctx.pending_summary_paragraph = True
         else:
@@ -405,6 +458,8 @@ def _handle_reasoning_delta(
         return []
 
     delta_txt = evt.get("delta") or ""
+    if not isinstance(delta_txt, str) or not delta_txt:
+        return []
     out: list[bytes] = []
 
     if ctx.compat == "o3":
@@ -413,15 +468,35 @@ def _handle_reasoning_delta(
                 ctx.chunk({"reasoning": {"content": [{"type": "text", "text": "\n"}]}}),
             )
             ctx.pending_summary_paragraph = False
+        delta_obj: dict[str, Any] = {"reasoning": {"content": [{"type": "text", "text": delta_txt}]}}
+        if not ctx.role_sent:
+            delta_obj = {
+                "role": "assistant",
+                "reasoning": {"content": [{"type": "text", "text": delta_txt}]},
+            }
+            ctx.role_sent = True
         out.append(
-            ctx.chunk(
-                {"reasoning": {"content": [{"type": "text", "text": delta_txt}]}},
-            ),
+            ctx.chunk(delta_obj),
         )
+
+    elif ctx.compat in ("standard", "openai"):
+        if kind == SSE_REASONING_SUMMARY_TEXT_DELTA and ctx.pending_summary_paragraph:
+            out.append(ctx.chunk({"reasoning_content": "\n\n"}))
+            ctx.pending_summary_paragraph = False
+
+        delta_obj = {"reasoning_content": delta_txt}
+        if not ctx.role_sent:
+            delta_obj = {"role": "assistant", "reasoning_content": delta_txt}
+            ctx.role_sent = True
+        out.append(ctx.chunk(delta_obj))
 
     elif ctx.compat == "think-tags":
         if not ctx.think_open and not ctx.think_closed:
-            out.append(ctx.chunk({"content": "<think>"}))
+            think_open_chunk: dict[str, Any] = {"content": "<think>"}
+            if not ctx.role_sent:
+                think_open_chunk = {"role": "assistant", "content": "<think>"}
+                ctx.role_sent = True
+            out.append(ctx.chunk(think_open_chunk))
             ctx.think_open = True
         if ctx.think_open and not ctx.think_closed:
             if (
@@ -434,11 +509,17 @@ def _handle_reasoning_delta(
 
     else:  # legacy
         if kind == SSE_REASONING_SUMMARY_TEXT_DELTA:
-            out.append(
-                ctx.chunk({"reasoning_summary": delta_txt, "reasoning": delta_txt}),
-            )
+            delta_obj = {"reasoning_summary": delta_txt, "reasoning": delta_txt}
+            if not ctx.role_sent:
+                delta_obj = {"role": "assistant", **delta_obj}
+                ctx.role_sent = True
+            out.append(ctx.chunk(delta_obj))
         else:
-            out.append(ctx.chunk({"reasoning": delta_txt}))
+            delta_obj = {"reasoning": delta_txt}
+            if not ctx.role_sent:
+                delta_obj = {"role": "assistant", **delta_obj}
+                ctx.role_sent = True
+            out.append(ctx.chunk(delta_obj))
 
     return out
 
@@ -498,7 +579,22 @@ def _handle_completed(
     # Usage chunk
     if ctx.include_usage and ctx.upstream_usage:
         try:
-            out.append(ctx.chunk({}, usage=ctx.upstream_usage))
+            out.append(
+                (
+                    "data: "
+                    + json.dumps(
+                        {
+                            "id": ctx.response_id,
+                            "object": "chat.completion.chunk",
+                            "created": ctx.created,
+                            "model": ctx.model,
+                            "choices": [],
+                            "usage": ctx.upstream_usage,
+                        },
+                    )
+                    + "\n\n"
+                ).encode(),
+            )
         except Exception:
             logger.debug("Failed to emit usage chunk", exc_info=True)
 
@@ -517,7 +613,7 @@ _CHAT_DISPATCH: dict[
     SSE_OUTPUT_ITEM_ADDED: _handle_output_item_added,
     SSE_OUTPUT_TEXT_DELTA: _handle_text_delta,
     SSE_FUNCTION_CALL_ARGS_DELTA: _handle_function_call_args_delta,
-    SSE_FUNCTION_CALL_ARGS_DONE: _handle_function_call_args_delta,
+    SSE_FUNCTION_CALL_ARGS_DONE: _handle_function_call_args_done,
     SSE_OUTPUT_ITEM_DONE: _handle_output_item_done,
     SSE_REASONING_SUMMARY_PART_ADDED: _handle_summary_part_added,
     SSE_REASONING_SUMMARY_TEXT_DELTA: _handle_reasoning_delta,
@@ -540,17 +636,19 @@ async def sse_translate_chat(
     created: int,
     verbose: bool = False,
     vlog: Any = None,
-    reasoning_compat: str = "think-tags",
+    reasoning_compat: str = "standard",
     *,
     include_usage: bool = False,
+    tool_name_reverse: dict[str, str] | None = None,
 ) -> AsyncGenerator[bytes]:
     ctx = SSEChatContext(
         model=model,
         created=created,
-        compat=(reasoning_compat or "think-tags").strip().lower(),
+        compat=(reasoning_compat or "standard").strip().lower(),
         verbose=verbose,
         vlog=vlog,
         include_usage=include_usage,
+        tool_name_reverse=tool_name_reverse or {},
     )
 
     try:

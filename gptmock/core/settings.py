@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     verbose_obfuscation: bool = False
     reasoning_effort: str = "medium"
     reasoning_summary: str = "auto"
-    reasoning_compat: str = "think-tags"
+    reasoning_compat: str = "standard"
     debug_model: str | None = None
     expose_reasoning_models: bool = False
     default_web_search: bool = False

@@ -25,7 +25,7 @@ from gptmock.infra.session import ensure_session_id
 from gptmock.infra.sse import sse_translate_chat, sse_translate_text
 from gptmock.schemas.messages import (
     convert_chat_messages_to_responses_input,
-    convert_tools_chat_to_responses,
+    convert_tools_with_mapping,
 )
 from gptmock.services.model_registry import (
     get_instructions_for_model,
@@ -65,6 +65,7 @@ class ChatCompletionContext:
     had_responses_tools: bool = False
     text_format: dict[str, Any] | None = None
     input_items: list[dict[str, Any]] = field(default_factory=list)
+    tool_name_reverse_map: dict[str, str] = field(default_factory=dict)
     access_token: str | None = None
     account_id: str | None = None
     session_id: str = ""
@@ -281,8 +282,22 @@ def _derive_policies(ctx: ChatCompletionContext) -> None:
         settings.gpt5_codex_instructions,
     )
 
-    ctx.tools_responses = convert_tools_chat_to_responses(payload.get("tools"))
+    ctx.tools_responses, tool_name_map = convert_tools_with_mapping(payload.get("tools"))
+    ctx.tool_name_reverse_map = {short: original for original, short in tool_name_map.items()}
+
     ctx.tool_choice = payload.get("tool_choice", "auto")
+    if isinstance(ctx.tool_choice, dict):
+        function_obj: dict[str, Any] | None = (
+            ctx.tool_choice.get("function")
+            if isinstance(ctx.tool_choice.get("function"), dict)
+            else None
+        )
+        name = function_obj.get("name") if function_obj is not None else None
+        if isinstance(name, str) and name in tool_name_map and function_obj is not None:
+            ctx.tool_choice = {
+                **ctx.tool_choice,
+                "function": {**function_obj, "name": tool_name_map[name]},
+            }
     ctx.parallel_tool_calls = bool(payload.get("parallel_tool_calls", False))
 
     extra_tools: list[dict[str, Any]] = []
@@ -440,8 +455,18 @@ async def _retry_without_extra_tools(
             "[Passthrough] Upstream rejected tools; retrying without extra tools (args redacted)",
         )
 
-    base_tools_only = convert_tools_chat_to_responses(ctx.payload.get("tools"))
+    base_tools_only, tool_name_map = convert_tools_with_mapping(ctx.payload.get("tools"))
     safe_choice = ctx.payload.get("tool_choice", "auto")
+    if isinstance(safe_choice, dict):
+        function_obj: dict[str, Any] | None = (
+            safe_choice.get("function") if isinstance(safe_choice.get("function"), dict) else None
+        )
+        name = function_obj.get("name") if function_obj is not None else None
+        if isinstance(name, str) and name in tool_name_map and function_obj is not None:
+            safe_choice = {
+                **safe_choice,
+                "function": {**function_obj, "name": tool_name_map[name]},
+            }
     upstream = await _call_upstream_with_context(
         ctx,
         instructions=ctx.settings.base_instructions,
@@ -507,6 +532,7 @@ def _adapt_streaming_response(
         vlog=print if ctx.settings.verbose_obfuscation else None,
         reasoning_compat=ctx.settings.reasoning_compat,
         include_usage=ctx.include_usage,
+        tool_name_reverse=ctx.tool_name_reverse_map,
     )
     return stream_iter, True
 
@@ -543,6 +569,7 @@ def _handle_chat_sse_event(
     reasoning_full_text: str,
     tool_calls: list[dict[str, Any]],
     annotations: list[dict[str, Any]],
+    tool_name_reverse: dict[str, str],
 ) -> tuple[str, str, str, str | None, bool]:
     kind = evt.get("type")
     if kind == SSE_OUTPUT_TEXT_DELTA:
@@ -584,7 +611,10 @@ def _handle_chat_sse_event(
                     {
                         "id": call_id,
                         "type": "function",
-                        "function": {"name": name, "arguments": args},
+                        "function": {
+                            "name": tool_name_reverse.get(name, name),
+                            "arguments": args,
+                        },
                     },
                 )
         return full_text, reasoning_summary_text, reasoning_full_text, None, False
@@ -623,6 +653,7 @@ def _handle_chat_sse_event(
 
 async def _collect_chat_sse_events(
     upstream: httpx.Response,
+    tool_name_reverse: dict[str, str],
 ) -> tuple[
     str,
     str,
@@ -672,6 +703,7 @@ async def _collect_chat_sse_events(
                 reasoning_full_text,
                 tool_calls,
                 annotations,
+                tool_name_reverse,
             )
             if event_error:
                 error_message = event_error
@@ -706,7 +738,7 @@ async def _adapt_non_streaming_response(
         error_message,
         usage_obj,
         annotations,
-    ) = await _collect_chat_sse_events(upstream)
+    ) = await _collect_chat_sse_events(upstream, ctx.tool_name_reverse_map)
 
     if error_message:
         raise ChatCompletionError(
@@ -731,6 +763,8 @@ async def _adapt_non_streaming_response(
             ctx.settings.reasoning_compat,
         )
 
+    finish_reason = "tool_calls" if tool_calls else "stop"
+
     completion = {
         "id": response_id or "chatcmpl",
         "object": "chat.completion",
@@ -740,7 +774,7 @@ async def _adapt_non_streaming_response(
             {
                 "index": 0,
                 "message": message,
-                "finish_reason": "stop",
+                "finish_reason": finish_reason,
             },
         ],
         **({"usage": usage_obj} if usage_obj else {}),
@@ -812,10 +846,9 @@ async def process_text_completion(
         prompt = payload.get("suffix") or ""
 
     stream_req = bool(payload.get("stream", False))
-    stream_options = (
-        payload.get("stream_options")
-        if isinstance(payload.get("stream_options"), dict)
-        else {}
+    stream_options_obj = payload.get("stream_options")
+    stream_options: dict[str, Any] = (
+        stream_options_obj if isinstance(stream_options_obj, dict) else {}
     )
     include_usage = bool(stream_options.get("include_usage", False))
 
@@ -883,18 +916,17 @@ async def process_text_completion(
     if upstream.status_code >= 400:
         try:
             await upstream.aread()
-            err_body = upstream.json() if upstream.content else {"raw": upstream.text}
+            err_body: Any = upstream.json() if upstream.content else {"raw": upstream.text}
         except Exception:
             logger.debug("Failed to read upstream error response", exc_info=True)
             err_body = {"raw": getattr(upstream, "text", "unknown error")}
+        message = _extract_upstream_error_message(err_body)
         raise ChatCompletionError(
-            (err_body.get("error", {}) or {}).get("message", "Upstream error"),
+            message,
             status_code=upstream.status_code,
             error_data={
                 "error": {
-                    "message": (err_body.get("error", {}) or {}).get(
-                        "message", "Upstream error",
-                    ),
+                    "message": message,
                 },
             },
         )

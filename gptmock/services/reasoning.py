@@ -78,9 +78,9 @@ def apply_reasoning_to_message(
     compat: str,
 ) -> dict[str, Any]:
     try:
-        compat = (compat or "think-tags").strip().lower()
+        compat = (compat or "standard").strip().lower()
     except Exception:
-        compat = "think-tags"
+        compat = "standard"
 
     if compat == "o3":
         rtxt_parts: list[str] = []
@@ -98,6 +98,17 @@ def apply_reasoning_to_message(
             message["reasoning_summary"] = reasoning_summary_text
         if reasoning_full_text:
             message["reasoning"] = reasoning_full_text
+        return message
+
+    if compat in ("standard", "openai"):
+        rtxt_parts = [
+            part
+            for part in (reasoning_summary_text, reasoning_full_text)
+            if isinstance(part, str) and part.strip()
+        ]
+        rtxt = "\n\n".join(rtxt_parts)
+        if rtxt:
+            message["reasoning_content"] = rtxt
         return message
 
     rtxt_parts: list[str] = []

@@ -20,6 +20,8 @@ Integration and coverage badges are updated from local runs. Refresh both by run
 
 gptmock runs a local server that proxies requests to the ChatGPT Codex backend, exposing an OpenAI/Ollama compatible API. Use GPT-5, GPT-5-Codex, and other models directly from your ChatGPT Plus/Pro subscription — no API key required.
 
+> **Migration note:** `--reasoning-compat` now defaults to `standard`, which emits reasoning via `delta.reasoning_content` / `message.reasoning_content` instead of injecting `<think>` tags into `content`. Set `--reasoning-compat think-tags` (or `GPTMOCK_REASONING_COMPAT=think-tags`) to keep the old behavior.
+
 ## Requirements
 
 - **Python 3.13+**
@@ -274,7 +276,7 @@ Each option can also be set via environment variable. Precedence: **CLI flag > `
 | `--debug-model` | `GPTMOCK_DEBUG_MODEL` | — | Force all requests to use this model name |
 | `--reasoning-effort` | `GPTMOCK_REASONING_EFFORT` | `medium` | `minimal` / `low` / `medium` / `high` / `xhigh` |
 | `--reasoning-summary` | `GPTMOCK_REASONING_SUMMARY` | `auto` | `auto` / `concise` / `detailed` / `none` |
-| `--reasoning-compat` | `GPTMOCK_REASONING_COMPAT` | `think-tags` | How reasoning is exposed: `think-tags` / `o3` / `legacy` (`current` is accepted as an alias for `legacy`) |
+| `--reasoning-compat` | `GPTMOCK_REASONING_COMPAT` | `standard` | How reasoning is exposed: `standard` / `think-tags` / `o3` / `legacy` (`openai` is accepted as an alias for `standard`, `current` as an alias for `legacy`) |
 | `--expose-reasoning-models` | `GPTMOCK_EXPOSE_REASONING_MODELS` | off | Show effort variants as separate models in `/v1/models` |
 | `--enable-web-search` | `GPTMOCK_DEFAULT_WEB_SEARCH` | off | Enable web search by default when `responses_tools` is omitted |
 | `--cors-origins` | `GPTMOCK_CORS_ORIGINS` | `*` | Comma-separated allowed CORS origins |
@@ -378,7 +380,7 @@ curl http://127.0.0.1:8000/v1/chat/completions \
 - Context length may be partially used by internal system instructions.
 - For the fastest responses, set `--reasoning-effort` to `low` and `--reasoning-summary` to `none`.
 - The context size of this route is larger than what you get in the regular ChatGPT app.
-- When the model returns a thinking summary, it sends back thinking tags for compatibility with chat apps. Set `--reasoning-compat` to `legacy` to use the reasoning tag instead of inline text.
+- When the model returns a thinking summary, the default `standard` mode emits `reasoning_content` fields without polluting `content`. Set `--reasoning-compat think-tags` to keep `<think>` tags for older chat apps, or `--reasoning-compat legacy` for the older reasoning fields.
 - This project is not affiliated with OpenAI. Use responsibly and at your own risk.
 
 ## Credits

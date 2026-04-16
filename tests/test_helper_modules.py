@@ -40,6 +40,7 @@ from gptmock.infra.sse import (
     _handle_completed,
     _handle_content_part_done,
     _handle_function_call_args_delta,
+    _handle_function_call_args_done,
     _handle_output_item_added,
     _handle_output_item_done,
     _handle_reasoning_delta,
@@ -647,14 +648,14 @@ class TestSSEHelpers:
         assert _handle_function_call_args_delta(ctx, {"delta": "", "item_id": "i1"}, "response.function_call_arguments.delta") == []
         assert _handle_function_call_args_delta(ctx, {"item_id": "i1"}, "response.function_call_arguments.delta") == []
 
-    def test_handle_function_call_args_delta_accepts_arguments_field(self) -> None:
+    def test_handle_function_call_args_done_accepts_arguments_field(self) -> None:
         ctx = self._ctx()
         _handle_output_item_added(
             ctx,
             {"item": {"type": "function_call", "id": "i_done", "call_id": "c_done", "name": "fn"}},
             "response.output_item.added",
         )
-        frames = _handle_function_call_args_delta(
+        frames = _handle_function_call_args_done(
             ctx,
             {"arguments": '{"q":"final"}', "item_id": "i_done"},
             "response.function_call_arguments.done",
@@ -662,7 +663,7 @@ class TestSSEHelpers:
         assert len(frames) == 1
         assert b'"arguments": "{\\"q\\":\\"final\\"}"' in frames[0]
 
-    def test_handle_function_call_args_delta_drops_out_of_order(self) -> None:
+    def test_handle_function_call_args_delta_buffers_out_of_order(self) -> None:
         ctx = self._ctx()
         frames = _handle_function_call_args_delta(
             ctx,
@@ -670,7 +671,7 @@ class TestSSEHelpers:
             "response.function_call_arguments.delta",
         )
         assert frames == []
-        assert "i_unknown" not in ctx.ws_index
+        assert ctx.pending_args["i_unknown"] == ['{"q":"early"}']
 
     def test_handle_output_item_done_skips_reemission_for_streamed_calls(self) -> None:
         ctx = self._ctx()
@@ -866,14 +867,14 @@ class TestSSEHelpers:
         assert completion_seen
 
     @pytest.mark.asyncio
-    async def test_spec_tc4_thinking_then_tool_call_content_before_not_after(self) -> None:
-        """TC4: Thinking + tool_call — pre-tool_call content streams; post-detection is suppressed; finish=tool_calls only."""
+    async def test_spec_tc4_thinking_then_tool_call_content_before_and_after(self) -> None:
+        """TC4: Thinking + tool_call — text continues streaming alongside tool calls."""
         lines = [
             'data: {"type":"response.output_item.added","item":{"type":"message","id":"msg_1"},"response":{"id":"resp_4"}}',
             'data: {"type":"response.output_text.delta","delta":"Let me search.","response":{"id":"resp_4"}}',
             'data: {"type":"response.output_text.done"}',
             'data: {"type":"response.output_item.added","item":{"type":"function_call","id":"item_tc4","call_id":"call_tc4","name":"web_search"},"response":{"id":"resp_4"}}',
-            'data: {"type":"response.output_text.delta","delta":"SHOULD_BE_SUPPRESSED","response":{"id":"resp_4"}}',
+            'data: {"type":"response.output_text.delta","delta":"continues streaming","response":{"id":"resp_4"}}',
             'data: {"type":"response.function_call_arguments.delta","delta":"{\\"query\\":\\"Korean news\\"}","item_id":"item_tc4"}',
             'data: {"type":"response.output_item.done","item":{"type":"function_call","call_id":"call_tc4","name":"web_search","arguments":"{\\"query\\":\\"Korean news\\"}"}}',
             'data: {"type":"response.completed","response":{"id":"resp_4"}}',
@@ -882,7 +883,7 @@ class TestSSEHelpers:
         frames = [frame async for frame in sse_translate_chat(cast(Any, upstream), model="gpt-5", created=123)]
 
         joined = b"".join(frames)
-        assert b"SHOULD_BE_SUPPRESSED" not in joined
+        assert b"continues streaming" in joined
 
         chunks = []
         for frame in frames:
@@ -903,7 +904,7 @@ class TestSSEHelpers:
         assert finish_reasons == ["tool_calls"]
 
     @pytest.mark.asyncio
-    async def test_e2e_args_delta_before_added_is_dropped(self) -> None:
+    async def test_e2e_args_delta_before_added_is_buffered(self) -> None:
         lines = [
             'data: {"type":"response.function_call_arguments.delta","delta":"{\\"early\\":true}","item_id":"item_early"}',
             'data: {"type":"response.output_item.added","item":{"type":"function_call","id":"item_early","call_id":"call_early","name":"fn"}}',
@@ -928,8 +929,8 @@ class TestSSEHelpers:
                     all_args.append(fn["arguments"])
         joined_args = "".join(all_args)
 
-        assert "early" not in joined_args, (
-            f"Early (pre-added) delta must be dropped, got args: {joined_args!r}"
+        assert "early" in joined_args, (
+            f"Early (pre-added) delta must be buffered and replayed, got args: {joined_args!r}"
         )
         assert '"q"' in joined_args
 
@@ -1000,6 +1001,10 @@ class TestSSEHelpers:
         frames = _handle_reasoning_delta(o3, {"delta": "first"}, "response.reasoning_summary_text.delta")
         assert any(b'"reasoning"' in f for f in frames)
 
+        standard = self._ctx("standard")
+        frames = _handle_reasoning_delta(standard, {"delta": "visible"}, "response.reasoning_text.delta")
+        assert any(b'"reasoning_content": "visible"' in f for f in frames)
+
         think = self._ctx("think-tags")
         frames = _handle_reasoning_delta(think, {"delta": "hidden"}, "response.reasoning_text.delta")
         assert any(b"<think>" in f for f in frames)
@@ -1016,12 +1021,13 @@ class TestSSEHelpers:
         assert len(frames) == 1
         assert b'"content": "hello"' in frames[0]
 
-    def test_handle_text_delta_suppressed_after_tool_call(self) -> None:
+    def test_handle_text_delta_coexists_after_tool_call(self) -> None:
         from gptmock.infra.sse import _handle_text_delta
         ctx = self._ctx()
         ctx.tool_call_detected = True
-        frames = _handle_text_delta(ctx, {"delta": "suppressed"}, "response.output_text.delta")
-        assert frames == []
+        frames = _handle_text_delta(ctx, {"delta": "allowed"}, "response.output_text.delta")
+        assert len(frames) == 1
+        assert b'"content": "allowed"' in frames[0]
 
     def test_handle_reasoning_delta_suppressed_after_tool_call(self) -> None:
         ctx = self._ctx("think-tags")
@@ -1099,8 +1105,12 @@ class TestReasoningHelpers:
         legacy = apply_reasoning_to_message({}, "sum", "full", "legacy")
         assert legacy["reasoning_summary"] == "sum"
         assert legacy["reasoning"] == "full"
-        think = apply_reasoning_to_message({"content": "hello"}, "sum", "full", cast(Any, object()))
-        assert think["content"].startswith("<think>sum\n\nfull</think>hello")
+        standard = apply_reasoning_to_message({"content": "hello"}, "sum", "full", "standard")
+        assert standard["reasoning_content"] == "sum\n\nfull"
+        assert standard["content"] == "hello"
+        fallback = apply_reasoning_to_message({"content": "hello"}, "sum", "full", cast(Any, object()))
+        assert fallback["reasoning_content"] == "sum\n\nfull"
+        assert fallback["content"] == "hello"
 
     def test_extract_reasoning_from_model_name_supports_colon_and_suffixes(self) -> None:
         assert extract_reasoning_from_model_name("gpt-5:high") == {"effort": "high"}
