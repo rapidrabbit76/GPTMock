@@ -760,7 +760,7 @@ class TestSSEHelpers:
 
     @pytest.mark.asyncio
     async def test_spec_tc3_no_tool_call_text_only(self) -> None:
-        """TC3: No tool_call — content streaming, finish_reason=stop, no tool_calls delta."""
+        """TC3: No tool_call — content streams per-delta immediately, finish_reason=stop."""
         lines = [
             'data: {"type":"response.output_item.added","item":{"type":"message","id":"msg_1"},"response":{"id":"resp_3"}}',
             'data: {"type":"response.output_text.delta","delta":"Hello, ","response":{"id":"resp_3"}}',
@@ -769,40 +769,37 @@ class TestSSEHelpers:
             'data: {"type":"response.completed","response":{"id":"resp_3"}}',
         ]
         upstream = _AsyncResponse(lines)
-        frames = [frame async for frame in sse_translate_chat(cast(Any, upstream), model="gpt-5", created=123)]
 
-        chunks = []
-        for frame in frames:
+        content_chunks_before_completion: list[str] = []
+        completion_seen = False
+        async for frame in sse_translate_chat(cast(Any, upstream), model="gpt-5", created=123):
             text = frame.decode()
-            if text.startswith("data: ") and not text.startswith("data: [DONE]"):
-                chunks.append(json.loads(text[6:].strip()))
+            if not text.startswith("data: ") or text.startswith("data: [DONE]"):
+                continue
+            chunk = json.loads(text[6:].strip())
+            delta = chunk["choices"][0]["delta"]
+            fr = chunk["choices"][0].get("finish_reason")
+            if fr is None and "content" in delta and not completion_seen:
+                content_chunks_before_completion.append(delta["content"])
+            if fr == "stop":
+                completion_seen = True
 
-        content_parts = []
-        has_tool_calls = False
-        finish_reasons = []
-        for c in chunks:
-            delta = c["choices"][0]["delta"]
-            if "content" in delta:
-                content_parts.append(delta["content"])
-            if "tool_calls" in delta:
-                has_tool_calls = True
-            fr = c["choices"][0].get("finish_reason")
-            if fr:
-                finish_reasons.append(fr)
-
-        assert "".join(content_parts) == "Hello, how are you?"
-        assert not has_tool_calls
-        assert finish_reasons == ["stop"]
+        assert len(content_chunks_before_completion) >= 2, (
+            f"Content must stream incrementally (per-delta), got {len(content_chunks_before_completion)} chunks: "
+            f"{content_chunks_before_completion}"
+        )
+        assert "".join(content_chunks_before_completion) == "Hello, how are you?"
+        assert completion_seen
 
     @pytest.mark.asyncio
-    async def test_spec_tc4_thinking_then_tool_call_content_suppressed(self) -> None:
-        """TC4: Thinking + tool_call — content suppressed, only tool_call chunks emitted."""
+    async def test_spec_tc4_thinking_then_tool_call_content_before_not_after(self) -> None:
+        """TC4: Thinking + tool_call — pre-tool_call content streams; post-detection is suppressed; finish=tool_calls only."""
         lines = [
             'data: {"type":"response.output_item.added","item":{"type":"message","id":"msg_1"},"response":{"id":"resp_4"}}',
-            'data: {"type":"response.reasoning_text.delta","delta":"I need to search...","response":{"id":"resp_4"}}',
-            'data: {"type":"response.output_text.delta","delta":"Let me search for that.","response":{"id":"resp_4"}}',
+            'data: {"type":"response.output_text.delta","delta":"Let me search.","response":{"id":"resp_4"}}',
             'data: {"type":"response.output_text.done"}',
             'data: {"type":"response.output_item.added","item":{"type":"function_call","id":"item_tc4","call_id":"call_tc4","name":"web_search"},"response":{"id":"resp_4"}}',
+            'data: {"type":"response.output_text.delta","delta":"SHOULD_BE_SUPPRESSED","response":{"id":"resp_4"}}',
             'data: {"type":"response.function_call_arguments.delta","delta":"{\\"query\\":\\"Korean news\\"}","item_id":"item_tc4"}',
             'data: {"type":"response.output_item.done","item":{"type":"function_call","call_id":"call_tc4","name":"web_search","arguments":"{\\"query\\":\\"Korean news\\"}"}}',
             'data: {"type":"response.completed","response":{"id":"resp_4"}}',
@@ -810,52 +807,73 @@ class TestSSEHelpers:
         upstream = _AsyncResponse(lines)
         frames = [frame async for frame in sse_translate_chat(cast(Any, upstream), model="gpt-5", created=123)]
 
+        joined = b"".join(frames)
+        assert b"SHOULD_BE_SUPPRESSED" not in joined
+
         chunks = []
         for frame in frames:
             text = frame.decode()
             if text.startswith("data: ") and not text.startswith("data: [DONE]"):
                 chunks.append(json.loads(text[6:].strip()))
 
-        has_content = False
         tc_indices = set()
         finish_reasons = []
         for c in chunks:
-            delta = c["choices"][0]["delta"]
-            if "content" in delta and delta["content"]:
-                has_content = True
-            for tc in delta.get("tool_calls", []):
+            for tc in c["choices"][0]["delta"].get("tool_calls", []):
                 tc_indices.add(tc.get("index"))
             fr = c["choices"][0].get("finish_reason")
             if fr:
                 finish_reasons.append(fr)
 
-        assert not has_content, "Content should be suppressed when tool_calls are present"
         assert tc_indices == {0}
         assert finish_reasons == ["tool_calls"]
 
-    def test_handle_reasoning_deltas_buffer_to_content_buffer(self) -> None:
+    @pytest.mark.asyncio
+    async def test_content_chunks_emitted_per_event_not_batched(self) -> None:
+        """Critical streaming invariant: each output_text.delta yields exactly one content chunk immediately."""
+        from gptmock.infra.sse import (
+            SSEChatContext,
+            _handle_reasoning_delta,
+            _handle_text_delta,
+        )
+
+        ctx = SSEChatContext(
+            model="gpt-5", created=1, compat="think-tags",
+            verbose=False, vlog=None, include_usage=False,
+        )
+
+        frames1 = _handle_text_delta(ctx, {"delta": "chunk1"}, "response.output_text.delta")
+        assert len(frames1) == 1
+        assert b'"content": "chunk1"' in frames1[0]
+
+        frames2 = _handle_text_delta(ctx, {"delta": "chunk2"}, "response.output_text.delta")
+        assert len(frames2) == 1
+        assert b'"content": "chunk2"' in frames2[0]
+
+        frames3 = _handle_reasoning_delta(ctx, {"delta": "thought"}, "response.reasoning_text.delta")
+        assert any(b"thought" in f for f in frames3)
+
+    def test_handle_reasoning_deltas_emit_immediately(self) -> None:
         o3 = self._ctx("o3")
         _handle_summary_part_added(o3, {}, "response.reasoning_summary_part.added")
         frames = _handle_reasoning_delta(o3, {"delta": "first"}, "response.reasoning_summary_text.delta")
-        assert frames == []
-        assert any(b'"reasoning"' in f for f in o3.content_buffer)
+        assert any(b'"reasoning"' in f for f in frames)
 
         think = self._ctx("think-tags")
-        _handle_reasoning_delta(think, {"delta": "hidden"}, "response.reasoning_text.delta")
-        assert any(b"<think>" in f for f in think.content_buffer)
-        assert any(b"hidden" in f for f in think.content_buffer)
+        frames = _handle_reasoning_delta(think, {"delta": "hidden"}, "response.reasoning_text.delta")
+        assert any(b"<think>" in f for f in frames)
+        assert any(b"hidden" in f for f in frames)
 
         legacy = self._ctx("legacy")
-        _handle_reasoning_delta(legacy, {"delta": "summary"}, "response.reasoning_summary_text.delta")
-        assert any(b'"reasoning_summary": "summary"' in f for f in legacy.content_buffer)
+        frames = _handle_reasoning_delta(legacy, {"delta": "summary"}, "response.reasoning_summary_text.delta")
+        assert any(b'"reasoning_summary": "summary"' in f for f in frames)
 
-    def test_handle_text_delta_buffers_content(self) -> None:
+    def test_handle_text_delta_emits_immediately(self) -> None:
         from gptmock.infra.sse import _handle_text_delta
         ctx = self._ctx()
         frames = _handle_text_delta(ctx, {"delta": "hello"}, "response.output_text.delta")
-        assert frames == []
-        assert len(ctx.content_buffer) == 1
-        assert b'"content": "hello"' in ctx.content_buffer[0]
+        assert len(frames) == 1
+        assert b'"content": "hello"' in frames[0]
 
     def test_handle_text_delta_suppressed_after_tool_call(self) -> None:
         from gptmock.infra.sse import _handle_text_delta
@@ -863,22 +881,12 @@ class TestSSEHelpers:
         ctx.tool_call_detected = True
         frames = _handle_text_delta(ctx, {"delta": "suppressed"}, "response.output_text.delta")
         assert frames == []
-        assert len(ctx.content_buffer) == 0
 
-    def test_handle_completed_flushes_content_buffer_when_no_tool_calls(self) -> None:
-        ctx = self._ctx()
-        ctx.content_buffer = [ctx.chunk({"content": "buffered text"})]
-        frames = _handle_completed(ctx, {"response": {}}, "response.completed")
-        assert any(b'"content": "buffered text"' in f for f in frames)
-        assert any(b'"finish_reason": "stop"' in f for f in frames)
-
-    def test_handle_completed_discards_content_buffer_when_tool_calls(self) -> None:
-        ctx = self._ctx()
+    def test_handle_reasoning_delta_suppressed_after_tool_call(self) -> None:
+        ctx = self._ctx("think-tags")
         ctx.tool_call_detected = True
-        ctx.sent_stop_chunk = True
-        ctx.content_buffer = [ctx.chunk({"content": "should be discarded"})]
-        frames = _handle_completed(ctx, {"response": {}}, "response.completed")
-        assert not any(b'"content"' in f for f in frames)
+        frames = _handle_reasoning_delta(ctx, {"delta": "suppressed"}, "response.reasoning_text.delta")
+        assert frames == []
 
     def test_handle_content_done_and_completed_emit_annotations_usage_and_done(self) -> None:
         ctx = self._ctx(include_usage=True)
@@ -886,13 +894,13 @@ class TestSSEHelpers:
         assert b'"annotations"' in ann[0]
         assert _handle_content_part_done(ctx, {"part": {"type": "output_text"}}, "response.content_part.done") == []
 
-        ctx.content_buffer = [ctx.chunk({"content": "text"})]
+        ctx.think_open = True
         completed = _handle_completed(
             ctx,
             {"response": {"usage": {"input_tokens": 2, "output_tokens": 3, "total_tokens": 5}}},
             "response.completed",
         )
-        assert any(b'"content": "text"' in frame for frame in completed)
+        assert any(b"</think>" in frame for frame in completed)
         assert any(b'"usage"' in frame for frame in completed)
         assert completed[-1] == b"data: [DONE]\n\n"
 

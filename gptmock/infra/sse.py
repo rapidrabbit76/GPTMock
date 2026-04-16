@@ -61,7 +61,6 @@ class SSEChatContext:
     # Incremental tool-call streaming state
     tc_streamed: set[str] = field(default_factory=set)
     tool_call_detected: bool = False
-    content_buffer: list[bytes] = field(default_factory=list)
 
     # ---- helpers --------------------------------------------------------
 
@@ -197,7 +196,6 @@ def _handle_output_item_added(
         ctx.ws_index[item_id] = idx
 
     ctx.tool_call_detected = True
-    ctx.content_buffer.clear()
 
     if item_type != "function_call":
         return []
@@ -272,8 +270,7 @@ def _handle_text_delta(
         ctx.think_open = False
         ctx.think_closed = True
     out.append(ctx.chunk({"content": delta}))
-    ctx.content_buffer.extend(out)
-    return []
+    return out
 
 
 def _handle_output_item_done(
@@ -410,8 +407,7 @@ def _handle_reasoning_delta(
         else:
             out.append(ctx.chunk({"reasoning": delta_txt}))
 
-    ctx.content_buffer.extend(out)
-    return []
+    return out
 
 
 def _handle_content_part_done(
@@ -456,13 +452,10 @@ def _handle_completed(
     if m:
         ctx.upstream_usage = m
 
-    if not ctx.tool_call_detected and ctx.content_buffer:
-        out.extend(ctx.content_buffer)
-        ctx.content_buffer.clear()
-        if ctx.compat == "think-tags" and ctx.think_open and not ctx.think_closed:
-            out.append(ctx.chunk({"content": "</think>"}))
-            ctx.think_open = False
-            ctx.think_closed = True
+    if ctx.compat == "think-tags" and ctx.think_open and not ctx.think_closed:
+        out.append(ctx.chunk({"content": "</think>"}))
+        ctx.think_open = False
+        ctx.think_closed = True
 
     if not ctx.sent_stop_chunk:
         out.append(ctx.chunk({}, finish_reason="stop"))
