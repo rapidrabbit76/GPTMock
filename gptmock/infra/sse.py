@@ -194,6 +194,8 @@ def _handle_output_item_added(
     idx = ctx.ws_idx(call_id)
     if isinstance(item_id, str) and item_id and item_id != call_id:
         ctx.ws_index[item_id] = idx
+        if item_id in ctx.ws_state and call_id not in ctx.ws_state:
+            ctx.ws_state[call_id] = ctx.ws_state[item_id]
 
     ctx.tool_call_detected = True
 
@@ -230,12 +232,22 @@ def _handle_function_call_args_delta(
     evt: dict[str, Any],
     kind: str,
 ) -> list[bytes]:
-    delta = evt.get("delta") or ""
-    if not isinstance(delta, str) or not delta:
+    raw = evt.get("delta")
+    if not isinstance(raw, str) or not raw:
+        raw = evt.get("arguments")
+    if not isinstance(raw, str) or not raw:
         return []
 
     call_id = evt.get("item_id") or evt.get("call_id") or ""
-    if not isinstance(call_id, str):
+    if not isinstance(call_id, str) or not call_id:
+        return []
+
+    if call_id not in ctx.ws_index:
+        logger.debug(
+            "function_call_arguments.%s before output_item.added for %s; dropping",
+            kind,
+            call_id,
+        )
         return []
 
     idx = ctx.ws_idx(call_id)
@@ -247,7 +259,7 @@ def _handle_function_call_args_delta(
                 "tool_calls": [
                     {
                         "index": idx,
-                        "function": {"arguments": delta},
+                        "function": {"arguments": raw},
                     },
                 ],
             },
@@ -284,7 +296,26 @@ def _handle_output_item_done(
     if item.get("type") not in ("function_call", "web_search_call"):
         return []
 
-    call_id = item.get("call_id") or item.get("id") or ""
+    item_id = item.get("id") or ""
+    call_id = item.get("call_id") or item_id
+    if not isinstance(call_id, str):
+        call_id = ""
+
+    if (
+        isinstance(item_id, str) and item_id
+        and call_id and item_id != call_id
+    ):
+        if item_id in ctx.ws_index and call_id not in ctx.ws_index:
+            ctx.ws_index[call_id] = ctx.ws_index[item_id]
+        elif call_id in ctx.ws_index and item_id not in ctx.ws_index:
+            ctx.ws_index[item_id] = ctx.ws_index[call_id]
+        if item_id in ctx.tc_streamed:
+            ctx.tc_streamed.add(call_id)
+        elif call_id in ctx.tc_streamed:
+            ctx.tc_streamed.add(item_id)
+        if item_id in ctx.ws_state and call_id not in ctx.ws_state:
+            ctx.ws_state[call_id] = ctx.ws_state[item_id]
+
     name = item.get("name") or (
         "web_search" if item.get("type") == "web_search_call" else ""
     )
@@ -307,47 +338,49 @@ def _handle_output_item_done(
         except Exception:
             logger.debug("Failed to log verbose message for tool call", exc_info=True)
 
-    already_streamed = isinstance(call_id, str) and call_id in ctx.tc_streamed
-    out: list[bytes] = []
+    ctx.tool_call_detected = True
 
-    if not already_streamed:
-        eff_args = ctx.ws_state.get(
-            call_id,
-            raw_args if isinstance(raw_args, (dict, list, str)) else {},
-        )
-        try:
-            args = _serialize_tool_args(eff_args)
-        except Exception:
-            logger.debug("Failed to serialize tool arguments", exc_info=True)
-            args = "{}"
+    already_streamed = bool(call_id) and call_id in ctx.tc_streamed
+    if already_streamed:
+        return []
 
-        idx = ctx.ws_idx(call_id)
+    eff_args = ctx.ws_state.get(
+        call_id,
+        raw_args if isinstance(raw_args, (dict, list, str)) else {},
+    )
+    try:
+        args = _serialize_tool_args(eff_args)
+    except Exception:
+        logger.debug("Failed to serialize tool arguments", exc_info=True)
+        args = "{}"
 
-        if not (
-            isinstance(call_id, str)
-            and isinstance(name, str)
-            and isinstance(args, str)
-        ):
-            return []
+    idx = ctx.ws_idx(call_id)
 
-        out.append(
-            ctx.chunk(
-                {
-                    "tool_calls": [
-                        {
-                            "index": idx,
-                            "id": call_id,
-                            "type": "function",
-                            "function": {"name": name, "arguments": args},
-                        },
-                    ],
-                },
-            ),
-        )
+    if not (
+        isinstance(call_id, str)
+        and isinstance(name, str)
+        and isinstance(args, str)
+    ):
+        return []
 
-    out.append(ctx.chunk({}, finish_reason="tool_calls"))
-    ctx.sent_stop_chunk = True
-    return out
+    ctx.tc_streamed.add(call_id)
+    if isinstance(item_id, str) and item_id:
+        ctx.tc_streamed.add(item_id)
+
+    return [
+        ctx.chunk(
+            {
+                "tool_calls": [
+                    {
+                        "index": idx,
+                        "id": call_id,
+                        "type": "function",
+                        "function": {"name": name, "arguments": args},
+                    },
+                ],
+            },
+        ),
+    ]
 
 
 def _handle_summary_part_added(
@@ -458,7 +491,8 @@ def _handle_completed(
         ctx.think_closed = True
 
     if not ctx.sent_stop_chunk:
-        out.append(ctx.chunk({}, finish_reason="stop"))
+        terminal = "tool_calls" if ctx.tool_call_detected else "stop"
+        out.append(ctx.chunk({}, finish_reason=terminal))
         ctx.sent_stop_chunk = True
 
     # Usage chunk
