@@ -163,6 +163,7 @@ class CollectorState:
     reasoning_summary_text: str = ""
     reasoning_full_text: str = ""
     function_calls: list[dict[str, Any]] = field(default_factory=list)
+    image_generations: list[dict[str, Any]] = field(default_factory=list)
     annotations: list[dict[str, Any]] = field(default_factory=list)
     error_message: str | None = None
 
@@ -215,8 +216,16 @@ def _handle_reasoning_text_delta(state: CollectorState, evt: dict[str, Any]) -> 
 
 def _handle_output_item_done(state: CollectorState, evt: dict[str, Any]) -> None:
     item = evt.get("item")
-    if not (isinstance(item, dict) and item.get("type") == "function_call"):
+    if not isinstance(item, dict):
         return
+
+    if item.get("type") == "image_generation_call":
+        state.image_generations.append(dict(item))
+        return
+
+    if item.get("type") != "function_call":
+        return
+
     fc: dict[str, Any] = {
         "type": "function_call",
         "status": item.get("status")
@@ -316,6 +325,7 @@ def _build_responses_api_result(
         },
     ]
     output.extend(state.function_calls)
+    output.extend(state.image_generations)
 
     response: dict[str, Any] = {
         "id": state.response_id,

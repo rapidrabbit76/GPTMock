@@ -203,6 +203,79 @@ curl http://127.0.0.1:8000/v1/chat/completions \
   }'
 ```
 
+### Image Generation (Responses API)
+
+GPTMock can expose the ChatGPT Codex backend's built-in image generation tool through `POST /v1/responses`. This uses your existing GPTMock / Codex OAuth credentials; no separate OpenAI API key is required.
+
+Pass an `image_generation` tool in the Responses API request:
+
+```bash
+curl http://127.0.0.1:8000/v1/responses \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-5.4",
+    "input": [
+      {
+        "type": "message",
+        "role": "user",
+        "content": [
+          {
+            "type": "input_text",
+            "text": "Use the image_generation tool to create a cute illustration of a fluffy orange tabby cat sitting on a white background. Return only the generated image."
+          }
+        ]
+      }
+    ],
+    "tools": [{"type": "image_generation", "output_format": "png"}],
+    "tool_choice": "auto",
+    "stream": false
+  }'
+```
+
+For non-streaming requests, generated images are returned as `image_generation_call` items in `output`. The `result` field is a base64-encoded PNG payload:
+
+```json
+{
+  "output": [
+    {
+      "type": "message",
+      "status": "completed",
+      "role": "assistant",
+      "content": [{"type": "output_text", "text": ""}]
+    },
+    {
+      "type": "image_generation_call",
+      "id": "ig_...",
+      "status": "generating",
+      "output_format": "png",
+      "revised_prompt": "A cute illustration of a fluffy orange tabby cat...",
+      "result": "<base64 png>"
+    }
+  ]
+}
+```
+
+Decode and save the first generated image with Python:
+
+```python
+import base64
+
+image_b64 = response["output"][1]["result"]
+with open("cat.png", "wb") as fp:
+    fp.write(base64.b64decode(image_b64))
+```
+
+You can also run the included live probe script from a checked-out repository:
+
+```bash
+uv run python scripts/probe_image_generation.py \
+  --model gpt-5.4 \
+  --prompt "Use the image_generation tool to create a cute cat illustration. Return only the generated image." \
+  --output .omx/logs/cat.png
+```
+
+> **Notes:** `gpt-5.4` and `gpt-5.4-mini` have been verified with this flow. The model interprets the request and invokes the built-in tool; the image bytes come back in the `image_generation_call.result` field. Model availability and image-generation entitlements are controlled by the upstream ChatGPT Codex backend and can vary by account.
+
 ---
 
 ## Supported Models
@@ -254,6 +327,7 @@ None hardcoded in GPTMock at this time. See the upstream availability note above
 - **Streaming & Non-streaming** — real-time SSE and buffered JSON responses
 - **Structured Output** — `response_format` with `json_schema` / `json_object` support
 - **Tool / Function Calling** — including web search with URL citation annotations via `responses_tools`
+- **Image Generation** — Responses API `image_generation` tool support with base64 PNG output
 - **Thinking Summaries** — `<think>` tags, `o3` reasoning format, or legacy mode
 - **Responses API** — `POST /v1/responses` for LangChain and other clients that auto-route codex models
 - **Ollama Compatibility** — drop-in replacement for Ollama API consumers

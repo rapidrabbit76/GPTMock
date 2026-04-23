@@ -395,10 +395,31 @@ class TestResponsesHelpers:
     def test_response_event_handlers_and_result_builder(self) -> None:
         state = CollectorState(created_at=1.0)
         _responses_handle_output_item_done(state, {"item": {"type": "function_call", "id": "fc_1", "name": "lookup", "arguments": "{}"}})
+        _responses_handle_output_item_done(
+            state,
+            {
+                "item": {
+                    "type": "image_generation_call",
+                    "id": "ig_1",
+                    "status": "completed",
+                    "revised_prompt": "a red circle",
+                    "result": "iVBORw0KGgo=",
+                },
+            },
+        )
         _responses_handle_content_part_done(state, {"part": {"type": "output_text", "annotations": [{"kind": "url"}]}})
         should_break = _handle_response_terminal(state, {"response": {"error": {"message": "boom"}}}, "response.failed")
         assert should_break is True
         assert state.error_message == "boom"
+        assert state.image_generations == [
+            {
+                "type": "image_generation_call",
+                "id": "ig_1",
+                "status": "completed",
+                "revised_prompt": "a red circle",
+                "result": "iVBORw0KGgo=",
+            }
+        ]
 
         state = CollectorState(
             response_id="resp_1",
@@ -409,6 +430,14 @@ class TestResponsesHelpers:
                 "output": [{"type": "message", "content": [{"type": "output_text", "text": "final", "annotations": [{"kind": "url"}]}]}],
             },
             function_calls=[{"type": "function_call", "name": "lookup"}],
+            image_generations=[
+                {
+                    "type": "image_generation_call",
+                    "id": "ig_1",
+                    "status": "completed",
+                    "result": "iVBORw0KGgo=",
+                }
+            ],
             reasoning_summary_text="sum",
             reasoning_full_text="full",
         )
@@ -418,6 +447,8 @@ class TestResponsesHelpers:
         assert result["usage"] == {"total_tokens": 3}
         assert result["output"][0]["content"][0]["annotations"] == [{"kind": "url"}]
         assert result["output"][1] == {"type": "function_call", "name": "lookup"}
+        assert result["output"][2]["type"] == "image_generation_call"
+        assert result["output"][2]["result"] == "iVBORw0KGgo="
         assert result["reasoning"]["content"][0]["text"] == "sum\n\nfull"
 
 
