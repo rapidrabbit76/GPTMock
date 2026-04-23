@@ -30,8 +30,14 @@ from gptmock.services.model_registry import (
 )
 from gptmock.services.reasoning import allowed_efforts_for_model, build_reasoning_param
 from gptmock.services.upstream import UpstreamError, send_upstream_request
+from gptmock.services.view_image import (
+    execute_view_image,
+    is_view_image_tool_call,
+    normalize_view_image_tools,
+)
 
 logger = logging.getLogger(__name__)
+_MAX_VIEW_IMAGE_FOLLOWUPS = 4
 
 
 def _merge_instructions(
@@ -370,6 +376,38 @@ async def _collect_non_stream_response(
     settings: Settings,
     request_text_obj: dict[str, Any] | None,
 ) -> dict[str, Any]:
+    return _build_responses_api_result_from_state(
+        await _collect_non_stream_state(upstream),
+        requested_model,
+        normalized_model,
+        settings,
+        request_text_obj,
+    )
+
+
+def _build_responses_api_result_from_state(
+    state: CollectorState,
+    requested_model: Any,
+    normalized_model: str,
+    settings: Settings,
+    request_text_obj: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if state.error_message:
+        raise ChatCompletionError(
+            state.error_message,
+            status_code=502,
+            error_data={"error": {"message": state.error_message}},
+        )
+    return _build_responses_api_result(
+        state,
+        requested_model,
+        normalized_model,
+        settings,
+        request_text_obj,
+    )
+
+
+async def _collect_non_stream_state(upstream: httpx.Response) -> CollectorState:
     state = CollectorState(created_at=float(time.time()))
 
     try:
@@ -403,19 +441,54 @@ async def _collect_non_stream_response(
     finally:
         await upstream.aclose()
 
-    if state.error_message:
-        raise ChatCompletionError(
-            state.error_message,
-            status_code=502,
-            error_data={"error": {"message": state.error_message}},
-        )
+    return state
 
-    return _build_responses_api_result(
-        state,
-        requested_model,
-        normalized_model,
-        settings,
-        request_text_obj,
+
+def _view_image_followup_input(
+    input_items: list[dict[str, Any]],
+    function_calls: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    followup = list(input_items)
+    for call in function_calls:
+        followup.append(call)
+        call_id = call.get("call_id") or call.get("id")
+        output = execute_view_image(call.get("arguments"))
+        if isinstance(call_id, str) and call_id:
+            followup.append(
+                {
+                    "type": "function_call_output",
+                    "call_id": call_id,
+                    "output": output,
+                },
+            )
+    return followup
+
+
+def _extract_upstream_error_message(err_body: Any) -> str:
+    if isinstance(err_body, dict):
+        err_obj = err_body.get("error")
+        if isinstance(err_obj, dict):
+            msg = err_obj.get("message")
+            if isinstance(msg, str) and msg:
+                return msg
+    return "Upstream error"
+
+
+async def _raise_for_upstream_error(upstream: httpx.Response) -> None:
+    if upstream.status_code < 400:
+        return
+    try:
+        await upstream.aread()
+        err_body = upstream.json() if upstream.content else {"raw": upstream.text}
+    except Exception:
+        logger.debug("Failed to read upstream error response", exc_info=True)
+        err_body = {"raw": upstream.text}
+    await upstream.aclose()
+    err_message = _extract_upstream_error_message(err_body)
+    raise ChatCompletionError(
+        err_message,
+        status_code=upstream.status_code,
+        error_data={"error": {"message": err_message}},
     )
 
 
@@ -451,6 +524,7 @@ async def process_responses_api(
     )
 
     tools = payload.get("tools") if isinstance(payload.get("tools"), list) else []
+    tools, view_image_enabled = normalize_view_image_tools(tools)
     tool_choice = _safe_tool_choice(payload.get("tool_choice", "auto"))
     parallel_tool_calls = bool(payload.get("parallel_tool_calls", False))
     text_obj = payload.get("text") if isinstance(payload.get("text"), dict) else None
@@ -509,26 +583,7 @@ async def process_responses_api(
             status_code=exc.status_code,
         ) from exc
 
-    if upstream.status_code >= 400:
-        try:
-            await upstream.aread()
-            err_body = upstream.json() if upstream.content else {"raw": upstream.text}
-        except Exception:
-            logger.debug("Failed to read upstream error response", exc_info=True)
-            err_body = {"raw": upstream.text}
-        await upstream.aclose()
-        err_message = "Upstream error"
-        if isinstance(err_body, dict):
-            err_obj = err_body.get("error")
-            if isinstance(err_obj, dict):
-                msg = err_obj.get("message")
-                if isinstance(msg, str) and msg:
-                    err_message = msg
-        raise ChatCompletionError(
-            err_message,
-            status_code=upstream.status_code,
-            error_data={"error": {"message": err_message}},
-        )
+    await _raise_for_upstream_error(upstream)
 
     if requested_stream:
         if settings.verbose:
@@ -538,8 +593,35 @@ async def process_responses_api(
             )
         return _proxy_stream(upstream), True
 
-    response_obj = await _collect_non_stream_response(
-        upstream,
+    state = await _collect_non_stream_state(upstream)
+    for _ in range(_MAX_VIEW_IMAGE_FOLLOWUPS):
+        if state.error_message or not view_image_enabled:
+            break
+        if not state.function_calls or not all(is_view_image_tool_call(call) for call in state.function_calls):
+            break
+        upstream_payload["input"] = _view_image_followup_input(
+            upstream_payload["input"],
+            state.function_calls,
+        )
+        try:
+            upstream = await send_upstream_request(
+                upstream_payload,
+                access_token,
+                account_id,
+                session_id,
+                http_client,
+                verbose=settings.verbose,
+            )
+        except UpstreamError as exc:
+            raise ChatCompletionError(
+                exc.message,
+                status_code=exc.status_code,
+            ) from exc
+        await _raise_for_upstream_error(upstream)
+        state = await _collect_non_stream_state(upstream)
+
+    response_obj = _build_responses_api_result_from_state(
+        state,
         requested_model,
         model,
         settings,

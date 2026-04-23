@@ -276,6 +276,53 @@ uv run python scripts/probe_image_generation.py \
 
 > **Notes:** `gpt-5.4` and `gpt-5.4-mini` have been verified with this flow. The model interprets the request and invokes the built-in tool; the image bytes come back in the `image_generation_call.result` field. Model availability and image-generation entitlements are controlled by the upstream ChatGPT Codex backend and can vary by account.
 
+### Local Image Inspection (`view_image`)
+
+GPTMock also supports a Codex-compatible `view_image` client-side tool for `POST /v1/responses`. Unlike `image_generation`, this is not executed by the upstream backend: GPTMock reads the local file, returns it to the model as an `input_image` function-call output, and then continues the Responses turn.
+
+Enable it per request by passing the shorthand tool:
+
+```bash
+curl http://127.0.0.1:8000/v1/responses \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-5.4-mini",
+    "input": [
+      {
+        "type": "message",
+        "role": "user",
+        "content": [
+          {
+            "type": "input_text",
+            "text": "Use view_image to inspect this local image path: assets/banner.png. Describe it briefly."
+          }
+        ]
+      }
+    ],
+    "tools": [{"type": "view_image"}],
+    "tool_choice": "auto",
+    "stream": false
+  }'
+```
+
+The shorthand is normalized to a Responses function tool named `view_image`. You can also provide an explicit function tool with the same name.
+
+By default, `view_image` can read files under the server's current working directory only. Configure the readable roots when needed:
+
+```bash
+GPTMOCK_VIEW_IMAGE_ROOTS="/path/to/images:/another/root" gptmock serve
+```
+
+Additional knobs:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `GPTMOCK_VIEW_IMAGE_ROOTS` | server cwd | `os.pathsep`-separated list of readable image roots |
+| `GPTMOCK_VIEW_IMAGE_ALLOW_ANY_PATH` | off | Set to `1` to allow any local path readable by the server process |
+| `GPTMOCK_VIEW_IMAGE_MAX_BYTES` | `20971520` | Maximum image file size in bytes |
+
+Supported image content types are PNG, JPEG, GIF, and WebP. `detail: "original"` is accepted when the model requests original-resolution handling.
+
 ---
 
 ## Supported Models
@@ -328,6 +375,7 @@ None hardcoded in GPTMock at this time. See the upstream availability note above
 - **Structured Output** — `response_format` with `json_schema` / `json_object` support
 - **Tool / Function Calling** — including web search with URL citation annotations via `responses_tools`
 - **Image Generation** — Responses API `image_generation` tool support with base64 PNG output
+- **Local Image Inspection** — Codex-compatible `view_image` function tool for allowed local image paths
 - **Thinking Summaries** — `<think>` tags, `o3` reasoning format, or legacy mode
 - **Responses API** — `POST /v1/responses` for LangChain and other clients that auto-route codex models
 - **Ollama Compatibility** — drop-in replacement for Ollama API consumers

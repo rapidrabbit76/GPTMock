@@ -51,3 +51,5 @@ volumes/
 .coverage
 coverage.json
 htmlcov/
+scripts/probe_image_generation.py
+scripts/probe_upstream_models.py
