@@ -340,8 +340,10 @@ Supported image content types are PNG, JPEG, GIF, and WebP. `detail: "original"`
 | `gpt-5.3-codex` | `low` / `medium` / `high` / `xhigh` | ✅ Verified upstream |
 | `gpt-5.3-codex-spark` | `low` / `medium` / `high` / `xhigh` | ✅ Verified upstream |
 | `gpt-5.4` | `low` / `medium` / `high` / `xhigh` | ✅ Verified upstream |
+| `gpt-5.5` | `low` / `medium` / `high` / `xhigh` | ⚠️ Recognized by GPTMock, upstream availability depends on account rollout |
 | `gpt-5.4-mini` | `low` / `medium` / `high` / `xhigh` | ✅ Verified upstream |
 | `gpt-5.4-fast` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (priority tier alias of `gpt-5.4`) |
+| `gpt-5.5-fast` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (priority tier alias of `gpt-5.5`) |
 | `gpt-5.4-mini-fast` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (priority tier alias of `gpt-5.4-mini`) |
 
 > **Fast variants** (`*-fast`) are synthetic aliases that map to the base model plus `service_tier="priority"` in the upstream payload. No separate endpoint or auth is required — the ChatGPT backend accepts them as paid-tier priority requests.
