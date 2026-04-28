@@ -30,8 +30,10 @@ MODEL_GROUPS: list[tuple[str, list[str]]] = [
     ("gpt-5.1-codex-mini", ["high", "medium", "low"]),
     ("gpt-5.1-codex-max", ["xhigh", "high", "medium", "low"]),
     ("gpt-5.4", ["xhigh", "high", "medium", "low"]),
+    ("gpt-5.5", ["xhigh", "high", "medium", "low"]),
     ("gpt-5.4-mini", ["xhigh", "high", "medium", "low"]),
     ("gpt-5.4-fast", ["xhigh", "high", "medium", "low"]),
+    ("gpt-5.5-fast", ["xhigh", "high", "medium", "low"]),
     ("gpt-5.4-mini-fast", ["xhigh", "high", "medium", "low"]),
 ]
 
@@ -39,6 +41,7 @@ _BASE_MODEL_IDS: frozenset[str] = frozenset(base for base, _ in MODEL_GROUPS)
 
 FAST_MODEL_ALIASES: dict[str, str] = {
     "gpt-5.4-fast": "gpt-5.4",
+    "gpt-5.5-fast": "gpt-5.5",
     "gpt-5.4-mini-fast": "gpt-5.4-mini",
 }
 
@@ -87,12 +90,18 @@ def normalize_model_name(name: str | None, debug_model: str | None = None) -> st
         "gpt5.4": "gpt-5.4",
         "gpt-5.4": "gpt-5.4",
         "gpt-5.4-latest": "gpt-5.4",
+        "gpt5.5": "gpt-5.5",
+        "gpt-5.5": "gpt-5.5",
+        "gpt-5.5-latest": "gpt-5.5",
         "gpt5.4-mini": "gpt-5.4-mini",
         "gpt-5.4-mini": "gpt-5.4-mini",
         "gpt-5.4-mini-latest": "gpt-5.4-mini",
         "gpt5.4-fast": "gpt-5.4-fast",
         "gpt-5.4-fast": "gpt-5.4-fast",
         "gpt-5.4-fast-latest": "gpt-5.4-fast",
+        "gpt5.5-fast": "gpt-5.5-fast",
+        "gpt-5.5-fast": "gpt-5.5-fast",
+        "gpt-5.5-fast-latest": "gpt-5.5-fast",
         "gpt5.4-mini-fast": "gpt-5.4-mini-fast",
         "gpt-5.4-mini-fast": "gpt-5.4-mini-fast",
         "gpt-5.4-mini-fast-latest": "gpt-5.4-mini-fast",
