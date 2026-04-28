@@ -199,7 +199,7 @@ wheels = [
 
 [[package]]
 name = "gptmock"
-version = "2026.4.17"
+version = "2026.4.28"
 source = { editable = "." }
 dependencies = [
     { name = "certifi" },
