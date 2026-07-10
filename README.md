@@ -341,6 +341,15 @@ Supported image content types are PNG, JPEG, GIF, and WebP. `detail: "original"`
 | `gpt-5.3-codex-spark` | `low` / `medium` / `high` / `xhigh` | ✅ Verified upstream |
 | `gpt-5.4` | `low` / `medium` / `high` / `xhigh` | ✅ Verified upstream |
 | `gpt-5.5` | `low` / `medium` / `high` / `xhigh` | ⚠️ Recognized by GPTMock, upstream availability depends on account rollout |
+| `gpt-5.6-sol` | `low` / `medium` / `high` / `xhigh` | ⚠️ Recognized by GPTMock, upstream availability depends on account rollout |
+| `gpt-5.6-sol-fast` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (priority tier alias of `gpt-5.6-sol`) |
+| `gpt-5.6-sol-pro` | `low` / `medium` / `high` / `xhigh` | ⚠️ Recognized by GPTMock, upstream availability depends on account rollout |
+| `gpt-5.6-terra` | `low` / `medium` / `high` / `xhigh` | ⚠️ Recognized by GPTMock, upstream availability depends on account rollout |
+| `gpt-5.6-terra-fast` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (priority tier alias of `gpt-5.6-terra`) |
+| `gpt-5.6-terra-pro` | `low` / `medium` / `high` / `xhigh` | ⚠️ Recognized by GPTMock, upstream availability depends on account rollout |
+| `gpt-5.6-luna` | `low` / `medium` / `high` / `xhigh` | ⚠️ Recognized by GPTMock, upstream availability depends on account rollout |
+| `gpt-5.6-luna-fast` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (priority tier alias of `gpt-5.6-luna`) |
+| `gpt-5.6-luna-pro` | `low` / `medium` / `high` / `xhigh` | ⚠️ Recognized by GPTMock, upstream availability depends on account rollout |
 | `gpt-5.4-mini` | `low` / `medium` / `high` / `xhigh` | ✅ Verified upstream |
 | `gpt-5.4-fast` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (priority tier alias of `gpt-5.4`) |
 | `gpt-5.5-fast` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (priority tier alias of `gpt-5.5`) |
