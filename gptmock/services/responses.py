@@ -24,6 +24,7 @@ from gptmock.infra.auth import get_effective_chatgpt_auth
 from gptmock.infra.session import ensure_session_id
 from gptmock.services.chat import ChatCompletionError
 from gptmock.services.model_registry import (
+    apply_model_overrides,
     get_instructions_for_model,
     normalize_model_name,
     resolve_upstream_model,
@@ -547,7 +548,7 @@ async def process_responses_api(
     if isinstance(reasoning_param, dict):
         include.append("reasoning.encrypted_content")
 
-    upstream_model, service_tier = resolve_upstream_model(model)
+    upstream_model, model_overrides = resolve_upstream_model(model)
 
     upstream_payload: dict[str, Any] = {
         "model": upstream_model,
@@ -561,8 +562,7 @@ async def process_responses_api(
         "stream": True,
         "prompt_cache_key": session_id,
     }
-    if service_tier is not None:
-        upstream_payload["service_tier"] = service_tier
+    apply_model_overrides(upstream_payload, model_overrides)
     if isinstance(text_obj, dict):
         upstream_payload["text"] = text_obj
     if include:

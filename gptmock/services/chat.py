@@ -28,6 +28,7 @@ from gptmock.schemas.messages import (
     convert_tools_with_mapping,
 )
 from gptmock.services.model_registry import (
+    apply_model_overrides,
     get_instructions_for_model,
     normalize_model_name,
     resolve_upstream_model,
@@ -107,7 +108,7 @@ async def _call_upstream(
     if isinstance(reasoning_param, dict):
         include.append("reasoning.encrypted_content")
 
-    upstream_model, service_tier = resolve_upstream_model(model)
+    upstream_model, model_overrides = resolve_upstream_model(model)
 
     payload: dict[str, Any] = {
         "model": upstream_model,
@@ -124,12 +125,11 @@ async def _call_upstream(
         "stream": True,
         "prompt_cache_key": session_id,
     }
-    if service_tier is not None:
-        payload["service_tier"] = service_tier
     if include:
         payload["include"] = include
     if reasoning_param is not None:
         payload["reasoning"] = reasoning_param
+    apply_model_overrides(payload, model_overrides)
     if isinstance(text_format, dict):
         payload["text"] = {"format": text_format}
 

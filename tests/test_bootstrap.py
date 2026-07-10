@@ -18,7 +18,13 @@ from gptmock.schemas.requests import (
     ResponsesCreateRequest,
     TextCompletionRequest,
 )
-from gptmock.services.model_registry import get_model_list, get_ollama_models, get_openai_models, normalize_model_name
+from gptmock.services.model_registry import (
+    apply_model_overrides,
+    get_model_list,
+    get_ollama_models,
+    get_openai_models,
+    normalize_model_name,
+)
 
 # ---------------------------------------------------------------------------
 # App bootstrap
@@ -387,6 +393,9 @@ class TestFastModelVariants:
     def test_fast_variants_registered_in_model_list(self) -> None:
         models = get_model_list(expose_reasoning=False)
         assert "gpt-5.5" in models
+        assert "gpt-5.6" in models
+        assert "gpt-5.6-fast" in models
+        assert "gpt-5.6-pro" in models
         for family in ("sol", "terra", "luna"):
             assert f"gpt-5.6-{family}" in models
             assert f"gpt-5.6-{family}-pro" in models
@@ -424,6 +433,12 @@ class TestFastModelVariants:
         assert normalize_model_name("gpt-5.5") == "gpt-5.5"
         assert normalize_model_name("gpt5.5") == "gpt-5.5"
         assert normalize_model_name("gpt-5.5-latest") == "gpt-5.5"
+        assert normalize_model_name("gpt-5.6") == "gpt-5.6"
+        assert normalize_model_name("gpt5.6") == "gpt-5.6"
+        assert normalize_model_name("gpt-5.6-latest") == "gpt-5.6"
+        assert normalize_model_name("gpt-5.6-pro") == "gpt-5.6-pro"
+        assert normalize_model_name("gpt5.6-pro") == "gpt-5.6-pro"
+        assert normalize_model_name("gpt-5.6-pro-latest") == "gpt-5.6-pro"
         for family in ("sol", "terra", "luna"):
             assert normalize_model_name(f"gpt-5.6-{family}") == f"gpt-5.6-{family}"
             assert normalize_model_name(f"gpt5.6-{family}") == f"gpt-5.6-{family}"
@@ -434,6 +449,9 @@ class TestFastModelVariants:
         assert normalize_model_name("gpt-5.5-fast") == "gpt-5.5-fast"
         assert normalize_model_name("gpt5.5-fast") == "gpt-5.5-fast"
         assert normalize_model_name("gpt-5.5-fast-latest") == "gpt-5.5-fast"
+        assert normalize_model_name("gpt-5.6-fast") == "gpt-5.6-fast"
+        assert normalize_model_name("gpt5.6-fast") == "gpt-5.6-fast"
+        assert normalize_model_name("gpt-5.6-fast-latest") == "gpt-5.6-fast"
         for family in ("sol", "terra", "luna"):
             assert normalize_model_name(f"gpt-5.6-{family}-fast") == f"gpt-5.6-{family}-fast"
             assert normalize_model_name(f"gpt5.6-{family}-fast") == f"gpt-5.6-{family}-fast"
@@ -455,24 +473,42 @@ class TestFastModelVariants:
     def test_resolve_upstream_model_for_fast_aliases(self) -> None:
         from gptmock.services.model_registry import resolve_upstream_model
 
-        assert resolve_upstream_model("gpt-5.4-fast") == ("gpt-5.4", "priority")
-        assert resolve_upstream_model("gpt-5.5-fast") == ("gpt-5.5", "priority")
-        assert resolve_upstream_model("gpt-5.6-sol-fast") == ("gpt-5.6-sol", "priority")
-        assert resolve_upstream_model("gpt-5.6-terra-fast") == ("gpt-5.6-terra", "priority")
-        assert resolve_upstream_model("gpt-5.6-luna-fast") == ("gpt-5.6-luna", "priority")
-        assert resolve_upstream_model("gpt-5.4-mini-fast") == ("gpt-5.4-mini", "priority")
+        priority = {"service_tier": "priority"}
+        assert resolve_upstream_model("gpt-5.4-fast") == ("gpt-5.4", priority)
+        assert resolve_upstream_model("gpt-5.5-fast") == ("gpt-5.5", priority)
+        assert resolve_upstream_model("gpt-5.6-fast") == ("gpt-5.6-sol", priority)
+        assert resolve_upstream_model("gpt-5.6-sol-fast") == ("gpt-5.6-sol", priority)
+        assert resolve_upstream_model("gpt-5.6-terra-fast") == ("gpt-5.6-terra", priority)
+        assert resolve_upstream_model("gpt-5.6-luna-fast") == ("gpt-5.6-terra", priority)
+        assert resolve_upstream_model("gpt-5.4-mini-fast") == ("gpt-5.4-mini", priority)
+
+    def test_resolve_upstream_model_for_pro_aliases(self) -> None:
+        from gptmock.services.model_registry import resolve_upstream_model
+
+        assert resolve_upstream_model("gpt-5.6-pro") == ("gpt-5.6-sol", {})
+        assert resolve_upstream_model("gpt-5.6-sol-pro") == ("gpt-5.6-sol", {})
+        assert resolve_upstream_model("gpt-5.6-terra-pro") == ("gpt-5.6-terra", {})
+        assert resolve_upstream_model("gpt-5.6-luna-pro") == ("gpt-5.6-terra", {})
+
+    def test_apply_model_overrides_merges_reasoning(self) -> None:
+        payload = {"reasoning": {"effort": "high", "summary": "auto"}}
+
+        apply_model_overrides(payload, {"reasoning": {"mode": "pro"}})
+
+        assert payload["reasoning"] == {"effort": "high", "summary": "auto", "mode": "pro"}
 
     def test_resolve_upstream_model_passes_through_regular_models(self) -> None:
         from gptmock.services.model_registry import resolve_upstream_model
 
-        assert resolve_upstream_model("gpt-5.4") == ("gpt-5.4", None)
-        assert resolve_upstream_model("gpt-5.5") == ("gpt-5.5", None)
+        assert resolve_upstream_model("gpt-5.4") == ("gpt-5.4", {})
+        assert resolve_upstream_model("gpt-5.5") == ("gpt-5.5", {})
+        assert resolve_upstream_model("gpt-5.6") == ("gpt-5.6-sol", {})
         for family in ("sol", "terra", "luna"):
-            assert resolve_upstream_model(f"gpt-5.6-{family}") == (f"gpt-5.6-{family}", None)
-            assert resolve_upstream_model(f"gpt-5.6-{family}-pro") == (f"gpt-5.6-{family}-pro", None)
-        assert resolve_upstream_model("gpt-5.4-mini") == ("gpt-5.4-mini", None)
-        assert resolve_upstream_model("gpt-5") == ("gpt-5", None)
-        assert resolve_upstream_model("gpt-5.1-codex-max") == ("gpt-5.1-codex-max", None)
+            expected = "gpt-5.6-terra" if family == "luna" else f"gpt-5.6-{family}"
+            assert resolve_upstream_model(f"gpt-5.6-{family}") == (expected, {})
+        assert resolve_upstream_model("gpt-5.4-mini") == ("gpt-5.4-mini", {})
+        assert resolve_upstream_model("gpt-5") == ("gpt-5", {})
+        assert resolve_upstream_model("gpt-5.1-codex-max") == ("gpt-5.1-codex-max", {})
 
     def test_fast_variants_allowed_efforts_match_base(self) -> None:
         from gptmock.services.reasoning import allowed_efforts_for_model
@@ -483,6 +519,9 @@ class TestFastModelVariants:
         gpt55_fast_efforts = allowed_efforts_for_model("gpt-5.5-fast")
         mini_fast_efforts = allowed_efforts_for_model("gpt-5.4-mini-fast")
         assert gpt55_efforts == base_efforts
+        assert allowed_efforts_for_model("gpt-5.6") == base_efforts
+        assert allowed_efforts_for_model("gpt-5.6-pro") == base_efforts
+        assert allowed_efforts_for_model("gpt-5.6-fast") == base_efforts
         for family in ("sol", "terra", "luna"):
             assert allowed_efforts_for_model(f"gpt-5.6-{family}") == base_efforts
             assert allowed_efforts_for_model(f"gpt-5.6-{family}-pro") == base_efforts
@@ -494,7 +533,7 @@ class TestFastModelVariants:
     def test_gpt56_reasoning_requires_known_family_variant(self) -> None:
         from gptmock.services.reasoning import allowed_efforts_for_model
 
-        assert "minimal" in allowed_efforts_for_model("gpt-5.6")
+        assert "minimal" not in allowed_efforts_for_model("gpt-5.6")
         assert "minimal" in allowed_efforts_for_model("gpt-5.6-unknown")
 
     def test_fast_variants_use_base_instructions_not_codex(self) -> None:
@@ -513,6 +552,9 @@ class TestFastModelVariants:
         assert resp.status_code == 200
         ids = {m["id"] for m in resp.json()["data"]}
         assert "gpt-5.5" in ids
+        assert "gpt-5.6" in ids
+        assert "gpt-5.6-fast" in ids
+        assert "gpt-5.6-pro" in ids
         for family in ("sol", "terra", "luna"):
             assert f"gpt-5.6-{family}" in ids
             assert f"gpt-5.6-{family}-pro" in ids
@@ -526,6 +568,9 @@ class TestFastModelVariants:
         assert resp.status_code == 200
         names = {m["name"] for m in resp.json()["models"]}
         assert "gpt-5.5" in names
+        assert "gpt-5.6" in names
+        assert "gpt-5.6-fast" in names
+        assert "gpt-5.6-pro" in names
         for family in ("sol", "terra", "luna"):
             assert f"gpt-5.6-{family}" in names
             assert f"gpt-5.6-{family}-pro" in names
