@@ -387,6 +387,10 @@ class TestFastModelVariants:
     def test_fast_variants_registered_in_model_list(self) -> None:
         models = get_model_list(expose_reasoning=False)
         assert "gpt-5.5" in models
+        for family in ("sol", "terra", "luna"):
+            assert f"gpt-5.6-{family}" in models
+            assert f"gpt-5.6-{family}-pro" in models
+            assert f"gpt-5.6-{family}-fast" in models
         assert "gpt-5.4-fast" in models
         assert "gpt-5.5-fast" in models
         assert "gpt-5.4-mini-fast" in models
@@ -396,12 +400,18 @@ class TestFastModelVariants:
         for effort in ("low", "medium", "high", "xhigh"):
             assert f"gpt-5.4-fast-{effort}" in models
             assert f"gpt-5.5-fast-{effort}" in models
+            assert f"gpt-5.6-sol-fast-{effort}" in models
+            assert f"gpt-5.6-terra-fast-{effort}" in models
+            assert f"gpt-5.6-luna-fast-{effort}" in models
             assert f"gpt-5.4-mini-fast-{effort}" in models
 
     def test_fast_variants_reasoning_metadata(self) -> None:
         models = {m["id"]: m for m in get_openai_models(expose_reasoning=False)}
         expected_efforts = ["low", "medium", "high", "xhigh"]
         assert models["gpt-5.5"]["reasoning"]["supported_efforts"] == expected_efforts
+        assert models["gpt-5.6-sol"]["reasoning"]["supported_efforts"] == expected_efforts
+        assert models["gpt-5.6-sol-pro"]["reasoning"]["supported_efforts"] == expected_efforts
+        assert models["gpt-5.6-sol-fast"]["reasoning"]["supported_efforts"] == expected_efforts
         assert models["gpt-5.4-fast"]["reasoning"]["supported_efforts"] == expected_efforts
         assert models["gpt-5.5-fast"]["reasoning"]["supported_efforts"] == expected_efforts
         assert models["gpt-5.4-mini-fast"]["reasoning"]["supported_efforts"] == expected_efforts
@@ -413,9 +423,18 @@ class TestFastModelVariants:
         assert normalize_model_name("gpt-5.5") == "gpt-5.5"
         assert normalize_model_name("gpt5.5") == "gpt-5.5"
         assert normalize_model_name("gpt-5.5-latest") == "gpt-5.5"
+        assert normalize_model_name("gpt-5.6-sol") == "gpt-5.6-sol"
+        assert normalize_model_name("gpt5.6-sol") == "gpt-5.6-sol"
+        assert normalize_model_name("gpt-5.6-sol-latest") == "gpt-5.6-sol"
+        assert normalize_model_name("gpt-5.6-sol-pro") == "gpt-5.6-sol-pro"
+        assert normalize_model_name("gpt5.6-sol-pro") == "gpt-5.6-sol-pro"
+        assert normalize_model_name("gpt-5.6-sol-pro-latest") == "gpt-5.6-sol-pro"
         assert normalize_model_name("gpt-5.5-fast") == "gpt-5.5-fast"
         assert normalize_model_name("gpt5.5-fast") == "gpt-5.5-fast"
         assert normalize_model_name("gpt-5.5-fast-latest") == "gpt-5.5-fast"
+        assert normalize_model_name("gpt-5.6-sol-fast") == "gpt-5.6-sol-fast"
+        assert normalize_model_name("gpt5.6-sol-fast") == "gpt-5.6-sol-fast"
+        assert normalize_model_name("gpt-5.6-sol-fast-latest") == "gpt-5.6-sol-fast"
         assert normalize_model_name("gpt-5.4-mini-fast") == "gpt-5.4-mini-fast"
         assert normalize_model_name("gpt5.4-mini-fast") == "gpt-5.4-mini-fast"
         assert normalize_model_name("gpt-5.4-mini-fast-latest") == "gpt-5.4-mini-fast"
@@ -425,6 +444,8 @@ class TestFastModelVariants:
         assert normalize_model_name("gpt-5.4-fast-xhigh") == "gpt-5.4-fast"
         assert normalize_model_name("gpt-5.5-fast-medium") == "gpt-5.5-fast"
         assert normalize_model_name("gpt-5.5-fast-xhigh") == "gpt-5.5-fast"
+        assert normalize_model_name("gpt-5.6-sol-fast-medium") == "gpt-5.6-sol-fast"
+        assert normalize_model_name("gpt-5.6-sol-fast-xhigh") == "gpt-5.6-sol-fast"
         assert normalize_model_name("gpt-5.4-mini-fast-high") == "gpt-5.4-mini-fast"
         assert normalize_model_name("gpt-5.4-mini-fast-low") == "gpt-5.4-mini-fast"
 
@@ -433,6 +454,9 @@ class TestFastModelVariants:
 
         assert resolve_upstream_model("gpt-5.4-fast") == ("gpt-5.4", "priority")
         assert resolve_upstream_model("gpt-5.5-fast") == ("gpt-5.5", "priority")
+        assert resolve_upstream_model("gpt-5.6-sol-fast") == ("gpt-5.6-sol", "priority")
+        assert resolve_upstream_model("gpt-5.6-terra-fast") == ("gpt-5.6-terra", "priority")
+        assert resolve_upstream_model("gpt-5.6-luna-fast") == ("gpt-5.6-luna", "priority")
         assert resolve_upstream_model("gpt-5.4-mini-fast") == ("gpt-5.4-mini", "priority")
 
     def test_resolve_upstream_model_passes_through_regular_models(self) -> None:
@@ -440,6 +464,8 @@ class TestFastModelVariants:
 
         assert resolve_upstream_model("gpt-5.4") == ("gpt-5.4", None)
         assert resolve_upstream_model("gpt-5.5") == ("gpt-5.5", None)
+        assert resolve_upstream_model("gpt-5.6-sol") == ("gpt-5.6-sol", None)
+        assert resolve_upstream_model("gpt-5.6-sol-pro") == ("gpt-5.6-sol-pro", None)
         assert resolve_upstream_model("gpt-5.4-mini") == ("gpt-5.4-mini", None)
         assert resolve_upstream_model("gpt-5") == ("gpt-5", None)
         assert resolve_upstream_model("gpt-5.1-codex-max") == ("gpt-5.1-codex-max", None)
@@ -449,12 +475,18 @@ class TestFastModelVariants:
 
         base_efforts = allowed_efforts_for_model("gpt-5.4")
         gpt55_efforts = allowed_efforts_for_model("gpt-5.5")
+        gpt56_efforts = allowed_efforts_for_model("gpt-5.6-sol")
+        gpt56_pro_efforts = allowed_efforts_for_model("gpt-5.6-sol-pro")
         fast_efforts = allowed_efforts_for_model("gpt-5.4-fast")
         gpt55_fast_efforts = allowed_efforts_for_model("gpt-5.5-fast")
+        gpt56_fast_efforts = allowed_efforts_for_model("gpt-5.6-sol-fast")
         mini_fast_efforts = allowed_efforts_for_model("gpt-5.4-mini-fast")
         assert gpt55_efforts == base_efforts
+        assert gpt56_efforts == base_efforts
+        assert gpt56_pro_efforts == base_efforts
         assert fast_efforts == base_efforts
         assert gpt55_fast_efforts == base_efforts
+        assert gpt56_fast_efforts == base_efforts
         assert mini_fast_efforts == base_efforts
 
     def test_fast_variants_use_base_instructions_not_codex(self) -> None:
@@ -464,6 +496,8 @@ class TestFastModelVariants:
         codex = "codex instructions"
         assert get_instructions_for_model("gpt-5.4-fast", base, codex) == base
         assert get_instructions_for_model("gpt-5.5-fast", base, codex) == base
+        assert get_instructions_for_model("gpt-5.6-sol-fast", base, codex) == base
+        assert get_instructions_for_model("gpt-5.6-sol-pro", base, codex) == base
         assert get_instructions_for_model("gpt-5.4-mini-fast", base, codex) == base
 
     def test_fast_variants_served_by_openai_models_endpoint(self, client: TestClient) -> None:
@@ -471,6 +505,9 @@ class TestFastModelVariants:
         assert resp.status_code == 200
         ids = {m["id"] for m in resp.json()["data"]}
         assert "gpt-5.5" in ids
+        assert "gpt-5.6-sol" in ids
+        assert "gpt-5.6-sol-pro" in ids
+        assert "gpt-5.6-sol-fast" in ids
         assert "gpt-5.4-fast" in ids
         assert "gpt-5.5-fast" in ids
         assert "gpt-5.4-mini-fast" in ids
@@ -480,6 +517,9 @@ class TestFastModelVariants:
         assert resp.status_code == 200
         names = {m["name"] for m in resp.json()["models"]}
         assert "gpt-5.5" in names
+        assert "gpt-5.6-sol" in names
+        assert "gpt-5.6-sol-pro" in names
+        assert "gpt-5.6-sol-fast" in names
         assert "gpt-5.4-fast" in names
         assert "gpt-5.5-fast" in names
         assert "gpt-5.4-mini-fast" in names

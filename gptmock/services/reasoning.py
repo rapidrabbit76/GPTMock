@@ -27,7 +27,7 @@ def allowed_efforts_for_model(model: str | None) -> set[str]:
     if not raw:
         return DEFAULT_REASONING_EFFORTS
     normalized = strip_effort_suffix(raw)
-    if normalized.startswith(("gpt-5.5", "gpt-5.4", "gpt-5.3", "gpt-5.2")):
+    if normalized.startswith(("gpt-5.6", "gpt-5.5", "gpt-5.4", "gpt-5.3", "gpt-5.2")):
         return {"low", "medium", "high", "xhigh"}
     if normalized.startswith("gpt-5.1-codex-max"):
         return {"low", "medium", "high", "xhigh"}
