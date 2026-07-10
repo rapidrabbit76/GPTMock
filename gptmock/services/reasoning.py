@@ -8,6 +8,9 @@ EFFORT_ORDER: tuple[str, ...] = ("minimal", "low", "medium", "high", "xhigh")
 
 GPT56_REASONING_MODELS: frozenset[str] = frozenset(
     {
+        "gpt-5.6",
+        "gpt-5.6-fast",
+        "gpt-5.6-pro",
         "gpt-5.6-sol",
         "gpt-5.6-sol-fast",
         "gpt-5.6-sol-pro",
