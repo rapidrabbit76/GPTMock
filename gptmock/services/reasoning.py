@@ -6,6 +6,20 @@ DEFAULT_REASONING_EFFORTS: set[str] = {"minimal", "low", "medium", "high", "xhig
 
 EFFORT_ORDER: tuple[str, ...] = ("minimal", "low", "medium", "high", "xhigh")
 
+GPT56_REASONING_MODELS: frozenset[str] = frozenset(
+    {
+        "gpt-5.6-sol",
+        "gpt-5.6-sol-fast",
+        "gpt-5.6-sol-pro",
+        "gpt-5.6-terra",
+        "gpt-5.6-terra-fast",
+        "gpt-5.6-terra-pro",
+        "gpt-5.6-luna",
+        "gpt-5.6-luna-fast",
+        "gpt-5.6-luna-pro",
+    },
+)
+
 
 def sort_efforts(efforts: set[str] | list[str]) -> list[str]:
     order = {e: i for i, e in enumerate(EFFORT_ORDER)}
@@ -27,7 +41,9 @@ def allowed_efforts_for_model(model: str | None) -> set[str]:
     if not raw:
         return DEFAULT_REASONING_EFFORTS
     normalized = strip_effort_suffix(raw)
-    if normalized.startswith(("gpt-5.6", "gpt-5.5", "gpt-5.4", "gpt-5.3", "gpt-5.2")):
+    if normalized in GPT56_REASONING_MODELS:
+        return {"low", "medium", "high", "xhigh"}
+    if normalized.startswith(("gpt-5.5", "gpt-5.4", "gpt-5.3", "gpt-5.2")):
         return {"low", "medium", "high", "xhigh"}
     if normalized.startswith("gpt-5.1-codex-max"):
         return {"low", "medium", "high", "xhigh"}

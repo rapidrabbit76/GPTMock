@@ -409,9 +409,10 @@ class TestFastModelVariants:
         models = {m["id"]: m for m in get_openai_models(expose_reasoning=False)}
         expected_efforts = ["low", "medium", "high", "xhigh"]
         assert models["gpt-5.5"]["reasoning"]["supported_efforts"] == expected_efforts
-        assert models["gpt-5.6-sol"]["reasoning"]["supported_efforts"] == expected_efforts
-        assert models["gpt-5.6-sol-pro"]["reasoning"]["supported_efforts"] == expected_efforts
-        assert models["gpt-5.6-sol-fast"]["reasoning"]["supported_efforts"] == expected_efforts
+        for family in ("sol", "terra", "luna"):
+            assert models[f"gpt-5.6-{family}"]["reasoning"]["supported_efforts"] == expected_efforts
+            assert models[f"gpt-5.6-{family}-pro"]["reasoning"]["supported_efforts"] == expected_efforts
+            assert models[f"gpt-5.6-{family}-fast"]["reasoning"]["supported_efforts"] == expected_efforts
         assert models["gpt-5.4-fast"]["reasoning"]["supported_efforts"] == expected_efforts
         assert models["gpt-5.5-fast"]["reasoning"]["supported_efforts"] == expected_efforts
         assert models["gpt-5.4-mini-fast"]["reasoning"]["supported_efforts"] == expected_efforts
@@ -423,18 +424,20 @@ class TestFastModelVariants:
         assert normalize_model_name("gpt-5.5") == "gpt-5.5"
         assert normalize_model_name("gpt5.5") == "gpt-5.5"
         assert normalize_model_name("gpt-5.5-latest") == "gpt-5.5"
-        assert normalize_model_name("gpt-5.6-sol") == "gpt-5.6-sol"
-        assert normalize_model_name("gpt5.6-sol") == "gpt-5.6-sol"
-        assert normalize_model_name("gpt-5.6-sol-latest") == "gpt-5.6-sol"
-        assert normalize_model_name("gpt-5.6-sol-pro") == "gpt-5.6-sol-pro"
-        assert normalize_model_name("gpt5.6-sol-pro") == "gpt-5.6-sol-pro"
-        assert normalize_model_name("gpt-5.6-sol-pro-latest") == "gpt-5.6-sol-pro"
+        for family in ("sol", "terra", "luna"):
+            assert normalize_model_name(f"gpt-5.6-{family}") == f"gpt-5.6-{family}"
+            assert normalize_model_name(f"gpt5.6-{family}") == f"gpt-5.6-{family}"
+            assert normalize_model_name(f"gpt-5.6-{family}-latest") == f"gpt-5.6-{family}"
+            assert normalize_model_name(f"gpt-5.6-{family}-pro") == f"gpt-5.6-{family}-pro"
+            assert normalize_model_name(f"gpt5.6-{family}-pro") == f"gpt-5.6-{family}-pro"
+            assert normalize_model_name(f"gpt-5.6-{family}-pro-latest") == f"gpt-5.6-{family}-pro"
         assert normalize_model_name("gpt-5.5-fast") == "gpt-5.5-fast"
         assert normalize_model_name("gpt5.5-fast") == "gpt-5.5-fast"
         assert normalize_model_name("gpt-5.5-fast-latest") == "gpt-5.5-fast"
-        assert normalize_model_name("gpt-5.6-sol-fast") == "gpt-5.6-sol-fast"
-        assert normalize_model_name("gpt5.6-sol-fast") == "gpt-5.6-sol-fast"
-        assert normalize_model_name("gpt-5.6-sol-fast-latest") == "gpt-5.6-sol-fast"
+        for family in ("sol", "terra", "luna"):
+            assert normalize_model_name(f"gpt-5.6-{family}-fast") == f"gpt-5.6-{family}-fast"
+            assert normalize_model_name(f"gpt5.6-{family}-fast") == f"gpt-5.6-{family}-fast"
+            assert normalize_model_name(f"gpt-5.6-{family}-fast-latest") == f"gpt-5.6-{family}-fast"
         assert normalize_model_name("gpt-5.4-mini-fast") == "gpt-5.4-mini-fast"
         assert normalize_model_name("gpt5.4-mini-fast") == "gpt-5.4-mini-fast"
         assert normalize_model_name("gpt-5.4-mini-fast-latest") == "gpt-5.4-mini-fast"
@@ -464,8 +467,9 @@ class TestFastModelVariants:
 
         assert resolve_upstream_model("gpt-5.4") == ("gpt-5.4", None)
         assert resolve_upstream_model("gpt-5.5") == ("gpt-5.5", None)
-        assert resolve_upstream_model("gpt-5.6-sol") == ("gpt-5.6-sol", None)
-        assert resolve_upstream_model("gpt-5.6-sol-pro") == ("gpt-5.6-sol-pro", None)
+        for family in ("sol", "terra", "luna"):
+            assert resolve_upstream_model(f"gpt-5.6-{family}") == (f"gpt-5.6-{family}", None)
+            assert resolve_upstream_model(f"gpt-5.6-{family}-pro") == (f"gpt-5.6-{family}-pro", None)
         assert resolve_upstream_model("gpt-5.4-mini") == ("gpt-5.4-mini", None)
         assert resolve_upstream_model("gpt-5") == ("gpt-5", None)
         assert resolve_upstream_model("gpt-5.1-codex-max") == ("gpt-5.1-codex-max", None)
@@ -475,19 +479,23 @@ class TestFastModelVariants:
 
         base_efforts = allowed_efforts_for_model("gpt-5.4")
         gpt55_efforts = allowed_efforts_for_model("gpt-5.5")
-        gpt56_efforts = allowed_efforts_for_model("gpt-5.6-sol")
-        gpt56_pro_efforts = allowed_efforts_for_model("gpt-5.6-sol-pro")
         fast_efforts = allowed_efforts_for_model("gpt-5.4-fast")
         gpt55_fast_efforts = allowed_efforts_for_model("gpt-5.5-fast")
-        gpt56_fast_efforts = allowed_efforts_for_model("gpt-5.6-sol-fast")
         mini_fast_efforts = allowed_efforts_for_model("gpt-5.4-mini-fast")
         assert gpt55_efforts == base_efforts
-        assert gpt56_efforts == base_efforts
-        assert gpt56_pro_efforts == base_efforts
+        for family in ("sol", "terra", "luna"):
+            assert allowed_efforts_for_model(f"gpt-5.6-{family}") == base_efforts
+            assert allowed_efforts_for_model(f"gpt-5.6-{family}-pro") == base_efforts
+            assert allowed_efforts_for_model(f"gpt-5.6-{family}-fast") == base_efforts
         assert fast_efforts == base_efforts
         assert gpt55_fast_efforts == base_efforts
-        assert gpt56_fast_efforts == base_efforts
         assert mini_fast_efforts == base_efforts
+
+    def test_gpt56_reasoning_requires_known_family_variant(self) -> None:
+        from gptmock.services.reasoning import allowed_efforts_for_model
+
+        assert "minimal" in allowed_efforts_for_model("gpt-5.6")
+        assert "minimal" in allowed_efforts_for_model("gpt-5.6-unknown")
 
     def test_fast_variants_use_base_instructions_not_codex(self) -> None:
         from gptmock.services.model_registry import get_instructions_for_model
@@ -505,9 +513,10 @@ class TestFastModelVariants:
         assert resp.status_code == 200
         ids = {m["id"] for m in resp.json()["data"]}
         assert "gpt-5.5" in ids
-        assert "gpt-5.6-sol" in ids
-        assert "gpt-5.6-sol-pro" in ids
-        assert "gpt-5.6-sol-fast" in ids
+        for family in ("sol", "terra", "luna"):
+            assert f"gpt-5.6-{family}" in ids
+            assert f"gpt-5.6-{family}-pro" in ids
+            assert f"gpt-5.6-{family}-fast" in ids
         assert "gpt-5.4-fast" in ids
         assert "gpt-5.5-fast" in ids
         assert "gpt-5.4-mini-fast" in ids
@@ -517,9 +526,10 @@ class TestFastModelVariants:
         assert resp.status_code == 200
         names = {m["name"] for m in resp.json()["models"]}
         assert "gpt-5.5" in names
-        assert "gpt-5.6-sol" in names
-        assert "gpt-5.6-sol-pro" in names
-        assert "gpt-5.6-sol-fast" in names
+        for family in ("sol", "terra", "luna"):
+            assert f"gpt-5.6-{family}" in names
+            assert f"gpt-5.6-{family}-pro" in names
+            assert f"gpt-5.6-{family}-fast" in names
         assert "gpt-5.4-fast" in names
         assert "gpt-5.5-fast" in names
         assert "gpt-5.4-mini-fast" in names
