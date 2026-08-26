@@ -16,7 +16,7 @@ from gptmock.core.settings import Settings
 from gptmock.schemas.requests import OllamaChatRequest, OllamaShowRequest
 from gptmock.schemas.transform import convert_ollama_messages, normalize_ollama_tools
 from gptmock.services.chat import ChatCompletionError, process_chat_completion
-from gptmock.services.model_registry import OLLAMA_FAKE_EVAL, get_ollama_models
+from gptmock.services.model_registry import get_model_list, get_ollama_models, resolve_upstream_model
 
 logger = logging.getLogger(__name__)
 
@@ -31,20 +31,6 @@ def _build_openai_payload(ollama_payload: dict[str, Any], model: str) -> dict[st
         if isinstance(ollama_payload.get("images"), list)
         else None,
     )
-
-    if isinstance(messages, list):
-        sys_idx = next(
-            (
-                i
-                for i, m in enumerate(messages)
-                if isinstance(m, dict) and m.get("role") == "system"
-            ),
-            None,
-        )
-        if isinstance(sys_idx, int):
-            sys_msg = messages.pop(sys_idx)
-            content = sys_msg.get("content") if isinstance(sys_msg, dict) else ""
-            messages.insert(0, {"role": "user", "content": content})
 
     stream_req = ollama_payload.get("stream")
     if stream_req is None:
@@ -68,7 +54,7 @@ def _build_openai_payload(ollama_payload: dict[str, Any], model: str) -> dict[st
             openai_payload["tools"] = openai_tools
 
     tool_choice = ollama_payload.get("tool_choice", "auto")
-    if tool_choice in ("auto", "none"):
+    if tool_choice in ("auto", "none", "required"):
         openai_payload["tool_choice"] = tool_choice
 
     parallel_tool_calls = bool(ollama_payload.get("parallel_tool_calls", False))
@@ -108,34 +94,41 @@ async def _convert_openai_to_ollama_stream(
                     "model": model,
                     "created_at": datetime.datetime.now(
                         datetime.UTC,
-                    ).isoformat()
-                    + "Z",
+                    ).isoformat().replace("+00:00", "Z"),
                     "message": {"role": "assistant", "content": ""},
                     "done": True,
-                    **OLLAMA_FAKE_EVAL,
                 }
                 yield (json.dumps(done_chunk) + "\n").encode("utf-8")
                 break
 
             try:
                 openai_chunk = json.loads(json_bytes)
+                if isinstance(openai_chunk.get("error"), dict):
+                    yield (json.dumps({"error": openai_chunk["error"].get("message", "upstream error")}) + "\n").encode("utf-8")
+                    break
                 choices = openai_chunk.get("choices", [])
 
                 if choices:
                     delta = choices[0].get("delta", {})
                     content = delta.get("content", "")
+                    reasoning = delta.get("reasoning_content") or delta.get("reasoning")
+                    tool_calls = delta.get("tool_calls")
 
-                    if content:
+                    if content or reasoning or tool_calls:
+                        message: dict[str, Any] = {
+                            "role": "assistant",
+                            "content": content,
+                        }
+                        if isinstance(reasoning, str) and reasoning:
+                            message["thinking"] = reasoning
+                        if isinstance(tool_calls, list) and tool_calls:
+                            message["tool_calls"] = tool_calls
                         ollama_chunk = {
                             "model": model,
                             "created_at": datetime.datetime.now(
                                 datetime.UTC,
-                            ).isoformat()
-                            + "Z",
-                            "message": {
-                                "role": "assistant",
-                                "content": content,
-                            },
+                            ).isoformat().replace("+00:00", "Z"),
+                            "message": message,
                             "done": False,
                         }
                         yield (json.dumps(ollama_chunk) + "\n").encode("utf-8")
@@ -155,11 +148,10 @@ def _convert_openai_to_ollama_response(
 
     return {
         "model": model,
-        "created_at": datetime.datetime.now(datetime.UTC).isoformat() + "Z",
+        "created_at": datetime.datetime.now(datetime.UTC).isoformat().replace("+00:00", "Z"),
         "message": message,
         "done": True,
         "done_reason": choice.get("finish_reason", "stop"),
-        **OLLAMA_FAKE_EVAL,
     }
 
 
@@ -213,25 +205,27 @@ async def ollama_show(
             log_json("OUT POST /api/show", err, logger=logger.debug)
         return JSONResponse(err, status_code=400)
 
-    # Return hardcoded model info (from routes_ollama.py:184-202)
+    available_models = set(get_model_list(expose_reasoning=settings.expose_reasoning_models))
+    if body.model not in available_models:
+        err = {"error": f"Model '{body.model}' not found"}
+        if settings.verbose:
+            log_json("OUT POST /api/show", err, logger=logger.debug)
+        return JSONResponse(err, status_code=404)
+
+    upstream_model, overrides = resolve_upstream_model(body.model)
     response = {
-        "modelfile": '# Modelfile generated by "ollama show"\n# To build a new Modelfile based on this one, replace the FROM line with:\n# FROM llava:latest\n\nFROM /models/blobs/sha256:placeholder\nTEMPLATE """{{ .System }}\nUSER: {{ .Prompt }}\nASSISTANT: """\nPARAMETER num_ctx 100000\nPARAMETER stop "</s>"\nPARAMETER stop "USER:"\nPARAMETER stop "ASSISTANT:"',
-        "parameters": 'num_keep 24\nstop "<|start_header_id|>"\nstop "<|end_header_id|>"\nstop "<|eot_id|>"',
-        "template": "{{ if .System }}<|start_header_id|>system<|end_header_id|>\n\n{{ .System }}<|eot_id|>{{ end }}{{ if .Prompt }}<|start_header_id|>user<|end_header_id|>\n\n{{ .Prompt }}<|eot_id|>{{ end }}<|start_header_id|>assistant<|end_header_id|>\n\n{{ .Response }}<|eot_id|>",
         "details": {
             "parent_model": "",
-            "format": "gguf",
-            "family": "llama",
-            "families": ["llama"],
-            "parameter_size": "8.0B",
-            "quantization_level": "Q4_0",
+            "format": "remote",
+            "family": "openai",
+            "families": ["openai"],
         },
         "model_info": {
-            "general.architecture": "llama",
-            "general.file_type": 2,
-            "llama.context_length": 2000000,
+            "gptmock.remote": True,
+            "gptmock.upstream_model": upstream_model,
+            "gptmock.request_overrides": overrides,
         },
-        "capabilities": ["completion", "vision", "tools", "thinking"],
+        "capabilities": ["completion", "tools", "thinking"],
     }
 
     if settings.verbose:

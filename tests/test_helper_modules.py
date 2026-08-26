@@ -539,21 +539,28 @@ class TestMessageTransforms:
 
     def test_convert_chat_messages_to_responses_input_handles_tools_images_and_text(self) -> None:
         messages = [
-            {"role": "system", "content": "skip"},
+            {"role": "system", "content": "system guidance"},
+            {"role": "developer", "content": "developer guidance"},
             {"role": "user", "content": [{"type": "text", "text": "hello"}, {"type": "image_url", "image_url": {"url": "https://x/y.png"}}]},
             {"role": "assistant", "tool_calls": [{"id": "call_1", "type": "function", "function": {"name": "lookup", "arguments": "{}"}}], "content": "done"},
             {"role": "tool", "tool_call_id": "call_1", "content": [{"text": "tool output"}]},
         ]
         converted = convert_chat_messages_to_responses_input(messages)
-        assert converted[0]["type"] == "message"
-        assert converted[0]["content"][0] == {"type": "input_text", "text": "hello"}
-        assert converted[1] == {"type": "function_call", "name": "lookup", "arguments": "{}", "call_id": "call_1"}
-        assert converted[2]["content"][0] == {"type": "output_text", "text": "done"}
-        assert converted[3] == {"type": "function_call_output", "call_id": "call_1", "output": "tool output"}
+        assert converted[0]["role"] == "system"
+        assert converted[0]["content"][0] == {"type": "input_text", "text": "system guidance"}
+        assert converted[1]["role"] == "developer"
+        assert converted[2]["content"][0] == {"type": "input_text", "text": "hello"}
+        assert converted[3] == {"type": "function_call", "name": "lookup", "arguments": "{}", "call_id": "call_1"}
+        assert converted[4]["content"][0] == {"type": "output_text", "text": "done"}
+        assert converted[5] == {"type": "function_call_output", "call_id": "call_1", "output": "tool output"}
 
     def test_convert_tools_chat_to_responses_normalizes_invalid_parameters(self) -> None:
         tools = [{"type": "function", "function": {"name": "lookup", "description": "d", "parameters": "bad"}}]
         assert convert_tools_chat_to_responses(tools) == [{"type": "function", "name": "lookup", "description": "d", "strict": False, "parameters": {"type": "object", "properties": {}}}]
+
+    def test_convert_tools_preserves_strict_mode(self) -> None:
+        tools = [{"type": "function", "function": {"name": "lookup", "strict": True, "parameters": {"type": "object"}}}]
+        assert convert_tools_chat_to_responses(tools)[0]["strict"] is True
 
 
 class TestOllamaTransforms:
@@ -1137,11 +1144,14 @@ class TestReasoningHelpers:
         assert allowed_efforts_for_model("gpt-5.1") == {"low", "medium", "high"}
         assert allowed_efforts_for_model("gpt-5.1-codex-max") == {"low", "medium", "high", "xhigh"}
         assert allowed_efforts_for_model("gpt-5.1-codex-mini") == {"low", "medium", "high"}
+        assert allowed_efforts_for_model("gpt-5.6-luna") == {"none", "low", "medium", "high", "xhigh", "max"}
 
     def test_build_reasoning_param_applies_valid_overrides_and_fallbacks(self) -> None:
-        assert build_reasoning_param("bad", "bad", None, allowed_efforts={"low", "medium"}) == {"effort": "medium", "summary": "auto"}
+        with pytest.raises(ValueError, match="Unsupported reasoning effort"):
+            build_reasoning_param("bad", "bad", None, allowed_efforts={"low", "medium"})
         assert build_reasoning_param("medium", "auto", {"effort": "low", "summary": "detailed"}, allowed_efforts={"low", "medium"}) == {"effort": "low", "summary": "detailed"}
         assert build_reasoning_param("medium", "none", None) == {"effort": "medium"}
+        assert build_reasoning_param("medium", "auto", {"effort": "max"}, allowed_efforts={"medium", "max"}) == {"effort": "max", "summary": "auto"}
 
     def test_apply_reasoning_to_message_handles_all_compat_modes(self) -> None:
         assert apply_reasoning_to_message({"content": "hello"}, "sum", "full", "o3")["reasoning"]["content"][0]["text"] == "sum\n\nfull"

@@ -1,0 +1,234 @@
+from __future__ import annotations
+
+import importlib
+import json
+from typing import Any
+
+import httpx
+import pytest
+
+from gptmock.core.settings import Settings
+from gptmock.infra.sse import sse_translate_chat, sse_translate_text
+
+
+def _completed_response(response: dict[str, Any]) -> httpx.Response:
+    event = {"type": "response.completed", "response": response}
+    return httpx.Response(200, content=f"data: {json.dumps(event)}\n\n".encode())
+
+
+@pytest.mark.asyncio
+async def test_chat_request_preserves_roles_tools_and_supported_options(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    chat_module = importlib.import_module("gptmock.services.chat")
+    captured: list[dict[str, Any]] = []
+
+    async def fake_auth() -> tuple[str, str]:
+        return "token", "account"
+
+    async def fake_send(payload: dict[str, Any], *args: Any, **kwargs: Any) -> httpx.Response:
+        del args, kwargs
+        captured.append(payload)
+        return _completed_response(
+            {
+                "id": "resp_chat",
+                "status": "completed",
+                "model": "gpt-5.6-sol",
+                "service_tier": "default",
+            },
+        )
+
+    monkeypatch.setattr(chat_module, "get_effective_chatgpt_auth", fake_auth)
+    monkeypatch.setattr(chat_module, "send_upstream_request", fake_send)
+
+    payload = {
+        "model": "gpt-5.6",
+        "messages": [
+            {"role": "system", "content": "system authority"},
+            {"role": "developer", "content": "developer authority"},
+            {"role": "user", "content": "hello"},
+        ],
+        "tools": [
+            {
+                "type": "function",
+                "function": {
+                    "name": "lookup",
+                    "strict": True,
+                    "parameters": {"type": "object"},
+                },
+            },
+        ],
+        "tool_choice": "required",
+        "max_completion_tokens": 321,
+        "service_tier": "priority",
+    }
+    async with httpx.AsyncClient() as client:
+        result, is_stream = await chat_module.process_chat_completion(
+            payload, Settings(), client,
+        )
+
+    assert is_stream is False
+    assert result["id"] == "resp_chat"
+    assert result["model"] == "gpt-5.6-sol"
+    assert result["service_tier"] == "default"
+    assert captured[0]["model"] == "gpt-5.6-sol"
+    assert [item["role"] for item in captured[0]["input"]] == ["system", "developer", "user"]
+    assert captured[0]["tools"][0]["strict"] is True
+    assert captured[0]["tool_choice"] == "required"
+    assert captured[0]["max_output_tokens"] == 321
+    assert captured[0]["service_tier"] == "priority"
+
+
+@pytest.mark.asyncio
+async def test_responses_request_preserves_input_options_and_actual_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    responses_module = importlib.import_module("gptmock.services.responses")
+    captured: list[dict[str, Any]] = []
+
+    async def fake_auth() -> tuple[str, str]:
+        return "token", "account"
+
+    final_response = {
+        "id": "resp_semantics",
+        "object": "response",
+        "status": "completed",
+        "model": "gpt-5.6-luna",
+        "service_tier": "default",
+        "previous_response_id": "resp_previous",
+        "reasoning": {"effort": "high"},
+        "output": [
+            {
+                "type": "message",
+                "role": "assistant",
+                "status": "completed",
+                "content": [{"type": "output_text", "text": "hello", "annotations": []}],
+            },
+        ],
+    }
+
+    async def fake_send(payload: dict[str, Any], *args: Any, **kwargs: Any) -> httpx.Response:
+        del args, kwargs
+        captured.append(payload)
+        return _completed_response(final_response)
+
+    monkeypatch.setattr(responses_module, "get_effective_chatgpt_auth", fake_auth)
+    monkeypatch.setattr(responses_module, "send_upstream_request", fake_send)
+
+    payload = {
+        "model": "gpt-5.6-luna",
+        "input": "hello as a string",
+        "tool_choice": "required",
+        "previous_response_id": "resp_previous",
+        "service_tier": "priority",
+        "max_output_tokens": 123,
+        "metadata": {"trace": "semantic-test"},
+    }
+    async with httpx.AsyncClient() as client:
+        result, is_stream = await responses_module.process_responses_api(
+            payload, Settings(), client,
+        )
+
+    assert is_stream is False
+    assert captured[0]["input"][0]["content"][0]["text"] == "hello as a string"
+    assert captured[0]["model"] == "gpt-5.6-luna"
+    assert captured[0]["tool_choice"] == "required"
+    assert captured[0]["previous_response_id"] == "resp_previous"
+    assert captured[0]["service_tier"] == "priority"
+    assert captured[0]["max_output_tokens"] == 123
+    assert captured[0]["metadata"] == {"trace": "semantic-test"}
+    assert result["model"] == "gpt-5.6-luna"
+    assert result["service_tier"] == "default"
+    assert result["previous_response_id"] == "resp_previous"
+    assert result["reasoning"] == {"effort": "high"}
+
+
+@pytest.mark.asyncio
+async def test_rejected_responses_tool_is_not_silently_removed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    chat_module = importlib.import_module("gptmock.services.chat")
+    calls = 0
+
+    async def fake_auth() -> tuple[str, str]:
+        return "token", "account"
+
+    async def fake_send(payload: dict[str, Any], *args: Any, **kwargs: Any) -> httpx.Response:
+        nonlocal calls
+        del payload, args, kwargs
+        calls += 1
+        return httpx.Response(400, json={"error": {"message": "tool rejected"}})
+
+    monkeypatch.setattr(chat_module, "get_effective_chatgpt_auth", fake_auth)
+    monkeypatch.setattr(chat_module, "send_upstream_request", fake_send)
+
+    async with httpx.AsyncClient() as client:
+        with pytest.raises(chat_module.ChatCompletionError, match="tool rejected"):
+            await chat_module.process_chat_completion(
+                {
+                    "model": "gpt-5.6-luna",
+                    "messages": [{"role": "user", "content": "search"}],
+                    "responses_tools": [{"type": "web_search"}],
+                },
+                Settings(),
+                client,
+            )
+    assert calls == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("translator", [sse_translate_chat, sse_translate_text])
+async def test_stream_failure_emits_error_and_done(translator: Any) -> None:
+    event = {
+        "type": "response.failed",
+        "response": {"id": "resp_failed", "status": "failed", "error": {"message": "boom"}},
+    }
+    upstream = httpx.Response(
+        200,
+        content=f"data: {json.dumps(event)}\n\n".encode(),
+    )
+    frames = [frame async for frame in translator(upstream, "gpt-5.6-luna", 1)]
+    rendered = [frame.decode() if isinstance(frame, bytes) else frame for frame in frames]
+    assert any('"message": "boom"' in frame for frame in rendered)
+    assert rendered[-1].strip() == "data: [DONE]"
+
+
+@pytest.mark.asyncio
+async def test_responses_stream_truncation_emits_failure_and_done() -> None:
+    responses_module = importlib.import_module("gptmock.services.responses")
+    event = {"type": "response.output_text.delta", "delta": "partial"}
+    upstream = httpx.Response(
+        200,
+        content=f"data: {json.dumps(event)}\n\n".encode(),
+    )
+
+    frames = [frame async for frame in responses_module._proxy_stream(upstream)]
+
+    assert any("terminal response event" in frame for frame in frames)
+    assert frames[-1].strip() == "data: [DONE]"
+
+
+@pytest.mark.asyncio
+async def test_non_stream_truncation_is_an_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    chat_module = importlib.import_module("gptmock.services.chat")
+
+    async def fake_auth() -> tuple[str, str]:
+        return "token", "account"
+
+    async def fake_send(payload: dict[str, Any], *args: Any, **kwargs: Any) -> httpx.Response:
+        del payload, args, kwargs
+        event = {"type": "response.output_text.delta", "delta": "partial"}
+        return httpx.Response(200, content=f"data: {json.dumps(event)}\n\n".encode())
+
+    monkeypatch.setattr(chat_module, "get_effective_chatgpt_auth", fake_auth)
+    monkeypatch.setattr(chat_module, "send_upstream_request", fake_send)
+
+    async with httpx.AsyncClient() as client:
+        with pytest.raises(
+            chat_module.ChatCompletionError, match="terminal response event",
+        ):
+            await chat_module.process_chat_completion(
+                {"model": "gpt-5.6-luna", "messages": [{"role": "user", "content": "hello"}]},
+                Settings(),
+                client,
+            )

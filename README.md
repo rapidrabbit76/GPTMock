@@ -18,21 +18,21 @@
 
 Integration and coverage badges are updated from local runs. Refresh both by running `scripts/test.sh` with `GIST_TOKEN` available in your environment or `.env`.
 
-gptmock runs a local server that proxies requests to the ChatGPT Codex backend, exposing an OpenAI/Ollama compatible API. Use GPT-5, GPT-5-Codex, and other models directly from your ChatGPT Plus/Pro subscription — no API key required.
+gptmock runs a local server that proxies requests to the ChatGPT Codex backend, exposing an OpenAI/Ollama compatible API. It exposes only the model names currently verified against that backend; availability still depends on your paid ChatGPT account.
 
 > **Migration note:** `--reasoning-compat` now defaults to `standard`, which emits reasoning via `delta.reasoning_content` / `message.reasoning_content` instead of injecting `<think>` tags into `content`. Set `--reasoning-compat think-tags` (or `GPTMOCK_REASONING_COMPAT=think-tags`) to keep the old behavior.
 
 ## Requirements
 
-- **Python 3.13+**
+- **Docker Engine 24+ with Docker Compose v2** (recommended deployment)
 - **Paid ChatGPT account** (Plus / Pro / Team / Enterprise)
-- [`uv`](https://docs.astral.sh/uv/getting-started/installation/) (for uvx usage)
+- **Python 3.13+** and [`uv`](https://docs.astral.sh/uv/getting-started/installation/) only for direct, non-Docker usage
 
 ---
 
-## Quick Start (uvx)
+## Direct Install (uvx)
 
-The fastest way to run gptmock. No clone, no install — just `uvx`.
+This is the non-Docker development path. No clone or persistent installation is needed.
 
 ### 1. Login
 
@@ -74,44 +74,16 @@ gptmock info
 
 ---
 
-## Quick Start (Docker)
+## Quick Start (Docker, recommended)
 
-No build required — pull the pre-built image and run.
+The repository compose file builds the exact checked-out source and applies the hardened runtime defaults.
 
-### 1. Create `docker-compose.yml`
+### 1. Clone and build
 
-```yaml
-services:
-  serve:
-    image: rapidrabbit76/gptmock:latest
-    command: ["serve", "--host", "0.0.0.0"]
-    ports:
-      - "127.0.0.1:8000:8000"
-      - "127.0.0.1:1455:1455"  # OAuth callback port (needed during first-time login)
-    volumes:
-      - gptmock-data:/data
-    read_only: true
-    tmpfs:
-      - /tmp:size=64m,mode=1777
-    cap_drop:
-      - ALL
-    security_opt:
-      - no-new-privileges:true
-    init: true
-    environment:
-      - GPTMOCK_HOME=/data
-      - GPTMOCK_LOGIN_BIND=0.0.0.0
-      # Optional: require this value as the clients' Bearer/API key.
-      # - GPTMOCK_API_KEY=replace-with-a-long-random-value
-    healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health').status==200 else 1)\""]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 120s  # Allows time for first-time login before health checks begin
-
-volumes:
-  gptmock-data:
+```bash
+git clone https://github.com/binary1215/GPTMock.git
+cd GPTMock
+docker compose build
 ```
 
 ### 2. Start (first run — login + serve in one step)
@@ -343,40 +315,31 @@ Supported image content types are PNG, JPEG, GIF, and WebP. `detail: "original"`
 
 | Model | Reasoning Efforts | Status |
 |-------|-------------------|--------|
-| `gpt-5` | `minimal` / `low` / `medium` / `high` | ⚠️ Recognized by GPTMock, currently rejected upstream for ChatGPT Codex accounts |
-| `gpt-5.1` | `low` / `medium` / `high` | ⚠️ Recognized by GPTMock, currently rejected upstream for ChatGPT Codex accounts |
-| `gpt-5.2` | `low` / `medium` / `high` / `xhigh` | ✅ Verified upstream |
-| `gpt-5-codex` | `low` / `medium` / `high` | ⚠️ Recognized by GPTMock, currently rejected upstream for ChatGPT Codex accounts |
-| `gpt-5.1-codex` | `low` / `medium` / `high` | ⚠️ Recognized by GPTMock, currently rejected upstream for ChatGPT Codex accounts |
-| `gpt-5.1-codex-mini` | `low` / `medium` / `high` | ⚠️ Recognized by GPTMock, currently rejected upstream for ChatGPT Codex accounts |
-| `gpt-5.1-codex-max` | `low` / `medium` / `high` / `xhigh` | ⚠️ Recognized by GPTMock, currently rejected upstream for ChatGPT Codex accounts |
-| `gpt-5.2-codex` | `low` / `medium` / `high` / `xhigh` | ⚠️ Recognized by GPTMock, currently rejected upstream for ChatGPT Codex accounts |
-| `gpt-5.3-codex` | `low` / `medium` / `high` / `xhigh` | ✅ Verified upstream |
 | `gpt-5.3-codex-spark` | `low` / `medium` / `high` / `xhigh` | ✅ Verified upstream |
 | `gpt-5.4` | `low` / `medium` / `high` / `xhigh` | ✅ Verified upstream |
-| `gpt-5.5` | `low` / `medium` / `high` / `xhigh` | ⚠️ Recognized by GPTMock, upstream availability depends on account rollout |
-| `gpt-5.6` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (routes to `gpt-5.6-sol`) |
-| `gpt-5.6-fast` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (priority tier alias of `gpt-5.6-sol`) |
-| `gpt-5.6-sol` | `low` / `medium` / `high` / `xhigh` | ✅ Verified upstream |
-| `gpt-5.6-sol-fast` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (priority tier alias of `gpt-5.6-sol`) |
-| `gpt-5.6-terra` | `low` / `medium` / `high` / `xhigh` | ✅ Verified upstream |
-| `gpt-5.6-terra-fast` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (priority tier alias of `gpt-5.6-terra`) |
-| `gpt-5.6-luna` | `low` / `medium` / `high` / `xhigh` | ✅ Verified upstream |
-| `gpt-5.6-luna-fast` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (priority tier alias of `gpt-5.6-luna`) |
+| `gpt-5.5` | `low` / `medium` / `high` / `xhigh` | ✅ Verified upstream |
+| `gpt-5.6` | `none` / `low` / `medium` / `high` / `xhigh` / `max` | ✅ Verified alias; upstream resolves it to `gpt-5.6-sol` |
+| `gpt-5.6-fast` | `none` / `low` / `medium` / `high` / `xhigh` / `max` | ⚠️ Synthetic priority request; latest probe was served as `default` |
+| `gpt-5.6-sol` | `none` / `low` / `medium` / `high` / `xhigh` / `max` | ✅ Verified upstream |
+| `gpt-5.6-sol-fast` | `none` / `low` / `medium` / `high` / `xhigh` / `max` | ⚠️ Synthetic priority request; latest probe was served as `default` |
+| `gpt-5.6-terra` | `none` / `low` / `medium` / `high` / `xhigh` / `max` | ✅ Verified upstream |
+| `gpt-5.6-terra-fast` | `none` / `low` / `medium` / `high` / `xhigh` / `max` | ⚠️ Synthetic priority request; latest probe was served as `default` |
+| `gpt-5.6-luna` | `none` / `low` / `medium` / `high` / `xhigh` / `max` | ✅ Verified upstream |
+| `gpt-5.6-luna-fast` | `none` / `low` / `medium` / `high` / `xhigh` / `max` | ⚠️ Synthetic priority request; latest probe was served as `default` |
 | `gpt-5.4-mini` | `low` / `medium` / `high` / `xhigh` | ✅ Verified upstream |
-| `gpt-5.4-fast` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (priority tier alias of `gpt-5.4`) |
-| `gpt-5.5-fast` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (priority tier alias of `gpt-5.5`) |
-| `gpt-5.4-mini-fast` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (priority tier alias of `gpt-5.4-mini`) |
+| `gpt-5.4-fast` | `low` / `medium` / `high` / `xhigh` | ⚠️ Synthetic priority request; latest probe was served as `default` |
+| `gpt-5.5-fast` | `low` / `medium` / `high` / `xhigh` | ⚠️ Synthetic priority request; latest probe was served as `default` |
+| `gpt-5.4-mini-fast` | `low` / `medium` / `high` / `xhigh` | ⚠️ Synthetic priority request; latest probe was served as `default` |
 
-> **Fast variants** (`*-fast`) are synthetic aliases that keep the same base model and request `service_tier="priority"` in the upstream payload. The upstream response remains authoritative for the tier that actually served the request.
+> **Fast variants** (`*-fast`) are synthetic aliases that keep the same base model and request `service_tier="priority"` in the upstream payload. They do not guarantee priority service. All seven aliases were accepted on 2026-08-26, but the response reported `service_tier="default"` for every probe.
 
 > **GPT-5.6 compatibility note:** GPTMock exposes only verified GPT-5.6 names. `gpt-5.6` follows OpenAI's documented alias to `gpt-5.6-sol`; `*-fast` only adds the priority-tier request described above. GPT-5.6 Pro variants are not listed because, on 2026-08-26, the ChatGPT Codex backend rejected both direct `*-pro` model IDs and `reasoning.mode="pro"` for `gpt-5.6-sol`, `gpt-5.6-terra`, and `gpt-5.6-luna`.
 
-> **Upstream availability note:** model availability can change independently of GPTMock releases. GPTMock may recognize a model ID even when the current ChatGPT Codex backend rejects it for a specific account or subscription. On 2026-04-17, direct probe requests against the current upstream accepted `gpt-5.2`, `gpt-5.3-codex`, `gpt-5.3-codex-spark`, `gpt-5.4`, and `gpt-5.4-mini`, while rejecting `gpt-5`, `gpt-5.1`, `gpt-5-codex`, `gpt-5.1-codex`, `gpt-5.1-codex-mini`, `gpt-5.1-codex-max`, and `gpt-5.2-codex` with: `The '<model>' model is not supported when using Codex with a ChatGPT account.`
+> **Upstream availability note:** model availability can change independently of GPTMock releases. The advertised list reflects direct probes made on 2026-08-26. `gpt-5`, `gpt-5.1`, `gpt-5.2`, `gpt-5-codex`, `gpt-5.1-codex`, `gpt-5.1-codex-mini`, `gpt-5.1-codex-max`, `gpt-5.2-codex`, and `gpt-5.3-codex` were rejected and are therefore not advertised.
 
 ### Deprecated / Unsupported Models
 
-None hardcoded in GPTMock at this time. See the upstream availability note above for models that are currently rejected by the ChatGPT Codex backend.
+Rejected names are omitted from `/v1/models` and `/api/tags`. A client can still send an arbitrary model identifier; GPTMock forwards it unchanged and preserves the upstream rejection instead of silently routing it to a different model.
 ---
 
 ## API Endpoints
@@ -514,7 +477,7 @@ data: {"choices": [{"delta": {}, "finish_reason": "stop"}]}
 curl http://127.0.0.1:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gpt-5",
+    "model": "gpt-5.4",
     "messages": [{"role":"user","content":"Find current METAR rules"}],
     "stream": true,
     "responses_tools": [{"type": "web_search"}],

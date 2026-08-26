@@ -9,39 +9,21 @@ from gptmock.services.reasoning import (
     strip_effort_suffix,
 )
 
-OLLAMA_FAKE_EVAL = {
-    "total_duration": 8497226791,
-    "load_duration": 1747193958,
-    "prompt_eval_count": 24,
-    "prompt_eval_duration": 269219750,
-    "eval_count": 247,
-    "eval_duration": 6413802458,
-}
-
 MODEL_GROUPS: list[tuple[str, list[str]]] = [
-    ("gpt-5", ["high", "medium", "low", "minimal"]),
-    ("gpt-5.1", ["high", "medium", "low"]),
-    ("gpt-5.2", ["xhigh", "high", "medium", "low"]),
-    ("gpt-5-codex", ["high", "medium", "low"]),
-    ("gpt-5.2-codex", ["xhigh", "high", "medium", "low"]),
-    ("gpt-5.3-codex", ["xhigh", "high", "medium", "low"]),
     ("gpt-5.3-codex-spark", ["xhigh", "high", "medium", "low"]),
-    ("gpt-5.1-codex", ["high", "medium", "low"]),
-    ("gpt-5.1-codex-mini", ["high", "medium", "low"]),
-    ("gpt-5.1-codex-max", ["xhigh", "high", "medium", "low"]),
     ("gpt-5.4", ["xhigh", "high", "medium", "low"]),
     ("gpt-5.5", ["xhigh", "high", "medium", "low"]),
-    ("gpt-5.6", ["xhigh", "high", "medium", "low"]),
-    ("gpt-5.6-sol", ["xhigh", "high", "medium", "low"]),
-    ("gpt-5.6-terra", ["xhigh", "high", "medium", "low"]),
-    ("gpt-5.6-luna", ["xhigh", "high", "medium", "low"]),
+    ("gpt-5.6", ["max", "xhigh", "high", "medium", "low", "none"]),
+    ("gpt-5.6-sol", ["max", "xhigh", "high", "medium", "low", "none"]),
+    ("gpt-5.6-terra", ["max", "xhigh", "high", "medium", "low", "none"]),
+    ("gpt-5.6-luna", ["max", "xhigh", "high", "medium", "low", "none"]),
     ("gpt-5.4-mini", ["xhigh", "high", "medium", "low"]),
     ("gpt-5.4-fast", ["xhigh", "high", "medium", "low"]),
     ("gpt-5.5-fast", ["xhigh", "high", "medium", "low"]),
-    ("gpt-5.6-fast", ["xhigh", "high", "medium", "low"]),
-    ("gpt-5.6-sol-fast", ["xhigh", "high", "medium", "low"]),
-    ("gpt-5.6-terra-fast", ["xhigh", "high", "medium", "low"]),
-    ("gpt-5.6-luna-fast", ["xhigh", "high", "medium", "low"]),
+    ("gpt-5.6-fast", ["max", "xhigh", "high", "medium", "low", "none"]),
+    ("gpt-5.6-sol-fast", ["max", "xhigh", "high", "medium", "low", "none"]),
+    ("gpt-5.6-terra-fast", ["max", "xhigh", "high", "medium", "low", "none"]),
+    ("gpt-5.6-luna-fast", ["max", "xhigh", "high", "medium", "low", "none"]),
     ("gpt-5.4-mini-fast", ["xhigh", "high", "medium", "low"]),
 ]
 
@@ -68,11 +50,13 @@ def normalize_model_name(name: str | None, debug_model: str | None = None) -> st
     if isinstance(debug_model, str) and debug_model.strip():
         return debug_model.strip()
     if not isinstance(name, str) or not name.strip():
-        return "gpt-5"
+        return "gpt-5.4"
     base = name.split(":", 1)[0].strip()
     for sep in ("-", "_"):
         lowered = base.lower()
-        for effort in ("minimal", "low", "medium", "high", "xhigh"):
+        if base == "gpt-5.1-codex-max":
+            return base
+        for effort in EFFORT_ORDER:
             suffix = f"{sep}{effort}"
             if lowered.endswith(suffix):
                 base = base[: -len(suffix)]
@@ -261,16 +245,11 @@ def get_ollama_models(expose_reasoning: bool = False) -> list[dict[str, Any]]:
             {
                 "name": model_id,
                 "model": model_id,
-                "modified_at": "2023-10-01T00:00:00Z",
-                "size": 815319791,
-                "digest": "8648f39daa8fbf5b18c7b4e6a8fb4990c692751d49917417b8842ca5758e7ffc",
                 "details": {
                     "parent_model": "",
-                    "format": "gguf",
-                    "family": "llama",
-                    "families": ["llama"],
-                    "parameter_size": "8.0B",
-                    "quantization_level": "Q4_0",
+                    "format": "remote",
+                    "family": "openai",
+                    "families": ["openai"],
                 },
             },
         )

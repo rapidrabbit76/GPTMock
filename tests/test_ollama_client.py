@@ -35,7 +35,7 @@ def test_ollama_tags(client: TestClient) -> None:
 
 def test_ollama_show(client: TestClient) -> None:
     """POST /api/show returns model details."""
-    payload = {"model": "gpt-5"}
+    payload = {"model": "gpt-5.4"}
     resp = client.post("/api/show", json=payload, timeout=TIMEOUT)
     assert resp.status_code == 200
     data = resp.json()

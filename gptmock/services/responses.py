@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import time
@@ -62,7 +63,7 @@ def _merge_instructions(
 
 
 def _safe_tool_choice(value: Any) -> Any:
-    if value in ("auto", "none"):
+    if value in ("auto", "none", "required"):
         return value
     if isinstance(value, dict):
         return value
@@ -136,6 +137,7 @@ def _extract_output_text_from_response(response_obj: dict[str, Any] | None) -> s
 
 
 async def _proxy_stream(upstream: httpx.Response) -> AsyncGenerator[str]:
+    terminal_received = False
     try:
         async for raw_line in upstream.aiter_lines():
             line = (
@@ -143,17 +145,43 @@ async def _proxy_stream(upstream: httpx.Response) -> AsyncGenerator[str]:
                 if isinstance(raw_line, str)
                 else raw_line.decode("utf-8", errors="ignore")
             )
+            data = _parse_sse_data(line)
+            if data == "[DONE]":
+                terminal_received = True
+            elif data is not None:
+                try:
+                    event = json.loads(data)
+                except (TypeError, ValueError):
+                    event = None
+                if isinstance(event, dict) and event.get("type") in (
+                    SSE_RESPONSE_COMPLETED,
+                    SSE_RESPONSE_FAILED,
+                ):
+                    terminal_received = True
             yield f"{line}\n"
+        if not terminal_received:
+            err_event = {
+                "type": SSE_RESPONSE_FAILED,
+                "response": {
+                    "status": "failed",
+                    "error": {
+                        "message": "Upstream stream ended before a terminal response event",
+                    },
+                },
+            }
+            yield f"data: {json.dumps(err_event)}\n\n"
+            yield "data: [DONE]\n\n"
     except httpx.HTTPError as exc:
-        err_event = {
-            "type": SSE_RESPONSE_FAILED,
-            "response": {
-                "status": "failed",
-                "error": {"message": f"Upstream stream interrupted: {exc}"},
-            },
-        }
-        yield f"data: {json.dumps(err_event)}\n\n"
-        yield "data: [DONE]\n\n"
+        if not terminal_received:
+            err_event = {
+                "type": SSE_RESPONSE_FAILED,
+                "response": {
+                    "status": "failed",
+                    "error": {"message": f"Upstream stream interrupted: {exc}"},
+                },
+            }
+            yield f"data: {json.dumps(err_event)}\n\n"
+            yield "data: [DONE]\n\n"
     finally:
         await upstream.aclose()
 
@@ -164,7 +192,8 @@ class CollectorState:
 
     response_id: str = "resp"
     created_at: float = 0.0
-    status: str = "completed"
+    status: str = "in_progress"
+    terminal_received: bool = False
     final_response_obj: dict[str, Any] | None = None
     full_text: str = ""
     reasoning_summary_text: str = ""
@@ -258,6 +287,7 @@ def _handle_response_terminal(
 ) -> bool:
     """Handle response.completed or response.failed. Returns True if loop should break."""
 
+    state.terminal_received = True
     response_obj = (
         evt.get("response") if isinstance(evt.get("response"), dict) else None
     )
@@ -309,7 +339,7 @@ def _build_responses_api_result(
         strict_json_text=strict_json_text,
     )
 
-    annotations = state.annotations
+    annotations = list(state.annotations)
     if not annotations and isinstance(state.final_response_obj, dict):
         for _item in state.final_response_obj.get("output") or []:
             if isinstance(_item, dict) and _item.get("type") == "message":
@@ -319,37 +349,95 @@ def _build_responses_api_result(
                         if isinstance(_ann, list):
                             annotations.extend(_ann)
 
-    content_item: dict[str, Any] = {"type": "output_text", "text": rendered_text}
-    if annotations:
-        content_item["annotations"] = annotations
+    response = copy.deepcopy(state.final_response_obj) if isinstance(state.final_response_obj, dict) else {}
+    output = response.get("output") if isinstance(response.get("output"), list) else None
+    if output is not None:
+        message_found = False
+        text_part_found = False
+        for item in output:
+            if not (isinstance(item, dict) and item.get("type") == "message"):
+                continue
+            message_found = True
+            content = item.get("content")
+            if not isinstance(content, list):
+                continue
+            for part in content:
+                if isinstance(part, dict) and part.get("type") == "output_text":
+                    text_part_found = True
+                    if rendered_text != full_text:
+                        part["text"] = rendered_text
+                    break
+            if text_part_found:
+                break
 
-    output: list[dict[str, Any]] = [
-        {
-            "type": "message",
-            "status": "completed",
-            "role": "assistant",
-            "content": [content_item],
-        },
-    ]
-    output.extend(state.function_calls)
-    output.extend(state.image_generations)
+        if rendered_text and not text_part_found:
+            content_item: dict[str, Any] = {
+                "type": "output_text",
+                "text": rendered_text,
+            }
+            if annotations:
+                content_item["annotations"] = annotations
+            if message_found:
+                for item in output:
+                    if isinstance(item, dict) and item.get("type") == "message":
+                        content = item.setdefault("content", [])
+                        if isinstance(content, list):
+                            content.append(content_item)
+                        break
+            else:
+                output.insert(
+                    0,
+                    {
+                        "type": "message",
+                        "status": "completed",
+                        "role": "assistant",
+                        "content": [content_item],
+                    },
+                )
 
-    response: dict[str, Any] = {
-        "id": state.response_id,
-        "object": "response",
-        "created_at": state.created_at,
-        "status": state.status,
-        "model": requested_model
-        if isinstance(requested_model, str) and requested_model
-        else normalized_model,
-        "output": output,
-    }
+        existing_keys = {
+            (
+                item.get("type"),
+                item.get("call_id") or item.get("id"),
+            )
+            for item in output
+            if isinstance(item, dict) and (item.get("call_id") or item.get("id"))
+        }
+        for candidate in (*state.function_calls, *state.image_generations):
+            candidate_key = (
+                candidate.get("type"),
+                candidate.get("call_id") or candidate.get("id"),
+            )
+            if candidate in output:
+                continue
+            if candidate_key[1] and candidate_key in existing_keys:
+                continue
+            output.append(copy.deepcopy(candidate))
+            if candidate_key[1]:
+                existing_keys.add(candidate_key)
+    else:
+        content_item: dict[str, Any] = {"type": "output_text", "text": rendered_text}
+        if annotations:
+            content_item["annotations"] = annotations
+        output = [
+            {
+                "type": "message",
+                "status": "completed",
+                "role": "assistant",
+                "content": [content_item],
+            },
+        ]
+        output.extend(state.function_calls)
+        output.extend(state.image_generations)
+        response["output"] = output
 
-    usage = _extract_usage(state.final_response_obj)
-    if usage:
-        response["usage"] = usage
+    response.setdefault("id", state.response_id)
+    response.setdefault("object", "response")
+    response.setdefault("created_at", state.created_at)
+    response.setdefault("status", state.status)
+    response.setdefault("model", normalized_model)
     if isinstance(request_text_obj, dict):
-        response["text"] = request_text_obj
+        response.setdefault("text", request_text_obj)
 
     if not strict_json_text and settings.reasoning_compat in ("legacy", "current"):
         if state.reasoning_summary_text:
@@ -442,6 +530,10 @@ async def _collect_non_stream_state(upstream: httpx.Response) -> CollectorState:
     finally:
         await upstream.aclose()
 
+    if not state.terminal_received and not state.error_message:
+        state.status = "failed"
+        state.error_message = "Upstream stream ended before a terminal response event"
+
     return state
 
 
@@ -512,17 +604,41 @@ async def process_responses_api(
     instructions = _merge_instructions(base_instructions, payload.get("instructions"))
 
     raw_input_items = payload.get("input")
-    input_items = raw_input_items if isinstance(raw_input_items, list) else []
+    if isinstance(raw_input_items, str):
+        input_items = [
+            {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": raw_input_items}],
+            },
+        ]
+    elif isinstance(raw_input_items, list):
+        input_items = raw_input_items
+    elif raw_input_items is None:
+        input_items = []
+    else:
+        raise ChatCompletionError(
+            "Responses input must be a string or an array of input items",
+            status_code=400,
+            error_data={"error": {"message": "Responses input must be a string or an array of input items"}},
+        )
 
     reasoning_overrides = (
         payload.get("reasoning") if isinstance(payload.get("reasoning"), dict) else None
     )
-    reasoning_param = build_reasoning_param(
-        settings.reasoning_effort,
-        settings.reasoning_summary,
-        reasoning_overrides,
-        allowed_efforts=allowed_efforts_for_model(model),
-    )
+    try:
+        reasoning_param = build_reasoning_param(
+            settings.reasoning_effort,
+            settings.reasoning_summary,
+            reasoning_overrides,
+            allowed_efforts=allowed_efforts_for_model(model),
+        )
+    except ValueError as exc:
+        raise ChatCompletionError(
+            str(exc),
+            status_code=400,
+            error_data={"error": {"message": str(exc), "code": "INVALID_REASONING"}},
+        ) from exc
 
     tools = payload.get("tools") if isinstance(payload.get("tools"), list) else []
     tools, view_image_enabled = normalize_view_image_tools(tools)
@@ -544,9 +660,14 @@ async def process_responses_api(
 
     session_id = ensure_session_id(instructions, input_items, client_session_id)
 
-    include: list[str] = []
+    include = (
+        [item for item in payload.get("include", []) if isinstance(item, str)]
+        if isinstance(payload.get("include"), list)
+        else []
+    )
     if isinstance(reasoning_param, dict):
-        include.append("reasoning.encrypted_content")
+        if "reasoning.encrypted_content" not in include:
+            include.append("reasoning.encrypted_content")
 
     upstream_model, model_overrides = resolve_upstream_model(model)
 
@@ -558,10 +679,28 @@ async def process_responses_api(
         "tool_choice": tool_choice,
         "parallel_tool_calls": parallel_tool_calls,
         "reasoning": reasoning_param,
-        "store": False,
+        "store": bool(payload.get("store", False)),
         "stream": True,
-        "prompt_cache_key": session_id,
+        "prompt_cache_key": payload.get("prompt_cache_key") or session_id,
     }
+    for key in (
+        "background",
+        "conversation",
+        "max_output_tokens",
+        "max_tool_calls",
+        "metadata",
+        "previous_response_id",
+        "prompt_cache_retention",
+        "safety_identifier",
+        "service_tier",
+        "temperature",
+        "top_logprobs",
+        "top_p",
+        "truncation",
+        "user",
+    ):
+        if key in payload and payload[key] is not None:
+            upstream_payload[key] = payload[key]
     apply_model_overrides(upstream_payload, model_overrides)
     if isinstance(text_obj, dict):
         upstream_payload["text"] = text_obj

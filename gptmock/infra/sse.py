@@ -42,6 +42,7 @@ class SSEChatContext:
     verbose: bool
     vlog: Any
     include_usage: bool
+    service_tier: str | None = None
 
     # Mutable stream state
     response_id: str = "chatcmpl-stream"
@@ -83,6 +84,8 @@ class SSEChatContext:
             "model": self.model,
             "choices": [{"index": 0, "delta": delta, "finish_reason": finish_reason}],
         }
+        if self.service_tier is not None:
+            obj["service_tier"] = self.service_tier
         obj.update(extra)
         return f"data: {json.dumps(obj)}\n\n".encode()
 
@@ -552,7 +555,11 @@ def _handle_failed(
     kind: str,
 ) -> list[bytes]:
     err = evt.get("response", {}).get("error", {}).get("message", "response.failed")
-    return [f"data: {json.dumps({'error': {'message': err}})}\n\n".encode()]
+    ctx.done = True
+    return [
+        f"data: {json.dumps({'error': {'message': err}})}\n\n".encode(),
+        b"data: [DONE]\n\n",
+    ]
 
 
 def _handle_completed(
@@ -657,7 +664,10 @@ async def sse_translate_chat(
         except httpx.HTTPError as e:
             if verbose and vlog:
                 vlog(f"Failed to start stream: {e}")
+            message = f"Unable to start upstream stream: {type(e).__name__}"
+            yield f"data: {json.dumps({'error': {'message': message}})}\n\n".encode()
             yield b"data: [DONE]\n\n"
+            ctx.done = True
             return
 
         async for raw in line_iterator:
@@ -678,6 +688,11 @@ async def sse_translate_chat(
                 if not data:
                     continue
                 if data == "[DONE]":
+                    if not ctx.done:
+                        message = "Upstream stream ended before response.completed"
+                        yield f"data: {json.dumps({'error': {'message': message}})}\n\n".encode()
+                        yield b"data: [DONE]\n\n"
+                        ctx.done = True
                     break
                 try:
                     evt = json.loads(data)
@@ -691,16 +706,22 @@ async def sse_translate_chat(
             ) as e:
                 if verbose and vlog:
                     vlog(f"Stream interrupted: {e}")
+                message = f"Upstream stream interrupted: {type(e).__name__}"
+                yield f"data: {json.dumps({'error': {'message': message}})}\n\n".encode()
                 yield b"data: [DONE]\n\n"
+                ctx.done = True
                 return
 
             # ---- dispatch ----
             kind = evt.get("type")
-            if isinstance(evt.get("response"), dict) and isinstance(
-                evt["response"].get("id"),
-                str,
-            ):
-                ctx.response_id = evt["response"].get("id") or ctx.response_id
+            response = evt.get("response")
+            if isinstance(response, dict):
+                if isinstance(response.get("id"), str):
+                    ctx.response_id = response.get("id") or ctx.response_id
+                if isinstance(response.get("model"), str) and response.get("model"):
+                    ctx.model = response["model"]
+                if isinstance(response.get("service_tier"), str):
+                    ctx.service_tier = response["service_tier"]
 
             if isinstance(kind, str) and "web_search_call" in kind:
                 for frame in _handle_web_search(ctx, evt, kind):
@@ -712,6 +733,22 @@ async def sse_translate_chat(
 
             if ctx.done:
                 break
+
+        if not ctx.done:
+            message = "Upstream stream ended before response.completed"
+            yield f"data: {json.dumps({'error': {'message': message}})}\n\n".encode()
+            yield b"data: [DONE]\n\n"
+            ctx.done = True
+    except (
+        httpx.ReadError,
+        httpx.RemoteProtocolError,
+        ConnectionError,
+        BrokenPipeError,
+    ) as e:
+        message = f"Upstream stream interrupted: {type(e).__name__}"
+        yield f"data: {json.dumps({'error': {'message': message}})}\n\n".encode()
+        yield b"data: [DONE]\n\n"
+        ctx.done = True
 
     finally:
         await upstream.aclose()
@@ -728,6 +765,8 @@ async def sse_translate_text(
 ) -> AsyncGenerator[bytes]:
     response_id = "cmpl-stream"
     upstream_usage: dict[str, int] | None = None
+    service_tier: str | None = None
+    done = False
 
     def _chunk(
         delta: dict[str, Any],
@@ -742,6 +781,8 @@ async def sse_translate_text(
             "model": model,
             "choices": [{"index": 0, **delta, "finish_reason": finish_reason}],
         }
+        if service_tier is not None:
+            obj["service_tier"] = service_tier
         obj.update(extra)
         return f"data: {json.dumps(obj)}\n\n".encode()
 
@@ -761,7 +802,11 @@ async def sse_translate_text(
             data = line[len("data: ") :].strip()
             if not data or data == "[DONE]":
                 if data == "[DONE]":
-                    yield _chunk({"text": ""}, finish_reason="stop")
+                    message = "Upstream stream ended before response.completed"
+                    yield f"data: {json.dumps({'error': {'message': message}})}\n\n".encode()
+                    yield b"data: [DONE]\n\n"
+                    done = True
+                    break
                 continue
             try:
                 evt = json.loads(data)
@@ -770,11 +815,14 @@ async def sse_translate_text(
                 continue
 
             kind = evt.get("type")
-            if isinstance(evt.get("response"), dict) and isinstance(
-                evt["response"].get("id"),
-                str,
-            ):
-                response_id = evt["response"].get("id") or response_id
+            response = evt.get("response")
+            if isinstance(response, dict):
+                if isinstance(response.get("id"), str):
+                    response_id = response.get("id") or response_id
+                if isinstance(response.get("model"), str) and response.get("model"):
+                    model = response["model"]
+                if isinstance(response.get("service_tier"), str):
+                    service_tier = response["service_tier"]
 
             if kind == SSE_OUTPUT_TEXT_DELTA:
                 yield _chunk({"text": evt.get("delta") or ""})
@@ -790,6 +838,27 @@ async def sse_translate_text(
                     except Exception:
                         logger.debug("Failed to emit final usage chunk", exc_info=True)
                 yield b"data: [DONE]\n\n"
+                done = True
                 break
+            elif kind == SSE_RESPONSE_FAILED:
+                error = evt.get("response", {}).get("error", {})
+                message = error.get("message", "response.failed") if isinstance(error, dict) else "response.failed"
+                yield f"data: {json.dumps({'error': {'message': message}})}\n\n".encode()
+                yield b"data: [DONE]\n\n"
+                done = True
+                break
+        if not done:
+            message = "Upstream stream ended before response.completed"
+            yield f"data: {json.dumps({'error': {'message': message}})}\n\n".encode()
+            yield b"data: [DONE]\n\n"
+    except (
+        httpx.ReadError,
+        httpx.RemoteProtocolError,
+        ConnectionError,
+        BrokenPipeError,
+    ) as e:
+        message = f"Upstream stream interrupted: {type(e).__name__}"
+        yield f"data: {json.dumps({'error': {'message': message}})}\n\n".encode()
+        yield b"data: [DONE]\n\n"
     finally:
         await upstream.aclose()

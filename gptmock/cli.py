@@ -582,7 +582,7 @@ def main() -> None:
     )
     p_serve.add_argument(
         "--reasoning-effort",
-        choices=["minimal", "low", "medium", "high", "xhigh"],
+        choices=["none", "minimal", "low", "medium", "high", "xhigh", "max"],
         default=(
             _env_with_legacy(
                 "GPTMOCK_REASONING_EFFORT", "CHATGPT_LOCAL_REASONING_EFFORT",
@@ -625,7 +625,7 @@ def main() -> None:
             "GPTMOCK_EXPOSE_REASONING_MODELS", "CHATGPT_LOCAL_EXPOSE_REASONING_MODELS",
         ),
         help=(
-            "Expose GPT-5 family reasoning effort variants (minimal|low|medium|high|xhigh where supported) "
+            "Expose GPT-5 family reasoning effort variants (none|minimal|low|medium|high|xhigh|max where supported) "
             "as separate models from /v1/models. This allows choosing effort via model selection in compatible UIs."
         ),
     )
