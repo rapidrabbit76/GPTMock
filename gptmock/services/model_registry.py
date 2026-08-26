@@ -32,13 +32,9 @@ MODEL_GROUPS: list[tuple[str, list[str]]] = [
     ("gpt-5.4", ["xhigh", "high", "medium", "low"]),
     ("gpt-5.5", ["xhigh", "high", "medium", "low"]),
     ("gpt-5.6", ["xhigh", "high", "medium", "low"]),
-    ("gpt-5.6-pro", ["xhigh", "high", "medium", "low"]),
     ("gpt-5.6-sol", ["xhigh", "high", "medium", "low"]),
-    ("gpt-5.6-sol-pro", ["xhigh", "high", "medium", "low"]),
     ("gpt-5.6-terra", ["xhigh", "high", "medium", "low"]),
-    ("gpt-5.6-terra-pro", ["xhigh", "high", "medium", "low"]),
     ("gpt-5.6-luna", ["xhigh", "high", "medium", "low"]),
-    ("gpt-5.6-luna-pro", ["xhigh", "high", "medium", "low"]),
     ("gpt-5.4-mini", ["xhigh", "high", "medium", "low"]),
     ("gpt-5.4-fast", ["xhigh", "high", "medium", "low"]),
     ("gpt-5.5-fast", ["xhigh", "high", "medium", "low"]),
@@ -53,7 +49,6 @@ _BASE_MODEL_IDS: frozenset[str] = frozenset(base for base, _ in MODEL_GROUPS)
 
 UPSTREAM_MODEL_ALIASES: dict[str, str] = {
     "gpt-5.6": "gpt-5.6-sol",
-    "gpt-5.6-luna": "gpt-5.6-terra",
 }
 
 FAST_MODEL_ALIASES: dict[str, str] = {
@@ -62,18 +57,11 @@ FAST_MODEL_ALIASES: dict[str, str] = {
     "gpt-5.6-fast": "gpt-5.6-sol",
     "gpt-5.6-sol-fast": "gpt-5.6-sol",
     "gpt-5.6-terra-fast": "gpt-5.6-terra",
-    "gpt-5.6-luna-fast": "gpt-5.6-terra",
+    "gpt-5.6-luna-fast": "gpt-5.6-luna",
     "gpt-5.4-mini-fast": "gpt-5.4-mini",
 }
 
 FAST_SERVICE_TIER: str = "priority"
-
-PRO_MODEL_ALIASES: dict[str, str] = {
-    "gpt-5.6-pro": "gpt-5.6-sol",
-    "gpt-5.6-sol-pro": "gpt-5.6-sol",
-    "gpt-5.6-terra-pro": "gpt-5.6-terra",
-    "gpt-5.6-luna-pro": "gpt-5.6-terra",
-}
 
 
 def normalize_model_name(name: str | None, debug_model: str | None = None) -> str:
@@ -124,27 +112,15 @@ def normalize_model_name(name: str | None, debug_model: str | None = None) -> st
         "gpt5.6": "gpt-5.6",
         "gpt-5.6": "gpt-5.6",
         "gpt-5.6-latest": "gpt-5.6",
-        "gpt5.6-pro": "gpt-5.6-pro",
-        "gpt-5.6-pro": "gpt-5.6-pro",
-        "gpt-5.6-pro-latest": "gpt-5.6-pro",
         "gpt5.6-sol": "gpt-5.6-sol",
         "gpt-5.6-sol": "gpt-5.6-sol",
         "gpt-5.6-sol-latest": "gpt-5.6-sol",
-        "gpt5.6-sol-pro": "gpt-5.6-sol-pro",
-        "gpt-5.6-sol-pro": "gpt-5.6-sol-pro",
-        "gpt-5.6-sol-pro-latest": "gpt-5.6-sol-pro",
         "gpt5.6-terra": "gpt-5.6-terra",
         "gpt-5.6-terra": "gpt-5.6-terra",
         "gpt-5.6-terra-latest": "gpt-5.6-terra",
-        "gpt5.6-terra-pro": "gpt-5.6-terra-pro",
-        "gpt-5.6-terra-pro": "gpt-5.6-terra-pro",
-        "gpt-5.6-terra-pro-latest": "gpt-5.6-terra-pro",
         "gpt5.6-luna": "gpt-5.6-luna",
         "gpt-5.6-luna": "gpt-5.6-luna",
         "gpt-5.6-luna-latest": "gpt-5.6-luna",
-        "gpt5.6-luna-pro": "gpt-5.6-luna-pro",
-        "gpt-5.6-luna-pro": "gpt-5.6-luna-pro",
-        "gpt-5.6-luna-pro-latest": "gpt-5.6-luna-pro",
         "gpt5.4-mini": "gpt-5.4-mini",
         "gpt-5.4-mini": "gpt-5.4-mini",
         "gpt-5.4-mini-latest": "gpt-5.4-mini",
@@ -192,8 +168,6 @@ def resolve_upstream_model(model: str) -> tuple[str, dict[str, Any]]:
     """Return the upstream model ID and provider body overrides."""
     if model in FAST_MODEL_ALIASES:
         return FAST_MODEL_ALIASES[model], {"service_tier": FAST_SERVICE_TIER}
-    if model in PRO_MODEL_ALIASES:
-        return PRO_MODEL_ALIASES[model], {}
     if model in UPSTREAM_MODEL_ALIASES:
         return UPSTREAM_MODEL_ALIASES[model], {}
     return model, {}

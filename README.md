@@ -343,24 +343,20 @@ Supported image content types are PNG, JPEG, GIF, and WebP. `detail: "original"`
 | `gpt-5.5` | `low` / `medium` / `high` / `xhigh` | ⚠️ Recognized by GPTMock, upstream availability depends on account rollout |
 | `gpt-5.6` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (routes to `gpt-5.6-sol`) |
 | `gpt-5.6-fast` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (priority tier alias of `gpt-5.6-sol`) |
-| `gpt-5.6-pro` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (routes to `gpt-5.6-sol`) |
 | `gpt-5.6-sol` | `low` / `medium` / `high` / `xhigh` | ✅ Verified upstream |
 | `gpt-5.6-sol-fast` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (priority tier alias of `gpt-5.6-sol`) |
-| `gpt-5.6-sol-pro` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (routes to `gpt-5.6-sol`) |
 | `gpt-5.6-terra` | `low` / `medium` / `high` / `xhigh` | ✅ Verified upstream |
 | `gpt-5.6-terra-fast` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (priority tier alias of `gpt-5.6-terra`) |
-| `gpt-5.6-terra-pro` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (routes to `gpt-5.6-terra`) |
-| `gpt-5.6-luna` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (routes to `gpt-5.6-terra`) |
-| `gpt-5.6-luna-fast` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (priority tier alias of `gpt-5.6-terra`) |
-| `gpt-5.6-luna-pro` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (routes to `gpt-5.6-terra`) |
+| `gpt-5.6-luna` | `low` / `medium` / `high` / `xhigh` | ✅ Verified upstream |
+| `gpt-5.6-luna-fast` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (priority tier alias of `gpt-5.6-luna`) |
 | `gpt-5.4-mini` | `low` / `medium` / `high` / `xhigh` | ✅ Verified upstream |
 | `gpt-5.4-fast` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (priority tier alias of `gpt-5.4`) |
 | `gpt-5.5-fast` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (priority tier alias of `gpt-5.5`) |
 | `gpt-5.4-mini-fast` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (priority tier alias of `gpt-5.4-mini`) |
 
-> **Fast variants** (`*-fast`) are synthetic aliases that map to the base model plus `service_tier="priority"` in the upstream payload. No separate endpoint or auth is required — the ChatGPT backend accepts them as paid-tier priority requests.
+> **Fast variants** (`*-fast`) are synthetic aliases that keep the same base model and request `service_tier="priority"` in the upstream payload. The upstream response remains authoritative for the tier that actually served the request.
 
-> **GPT-5.6 compatibility note:** GPTMock accepts the full OpenCode-style GPT-5.6 name set. Where the current ChatGPT backend rejects an advertised ID directly, GPTMock routes it to the closest verified GPT-5.6 upstream model while preserving the requested model name in the OpenAI-compatible response.
+> **GPT-5.6 compatibility note:** GPTMock exposes only verified GPT-5.6 names. `gpt-5.6` follows OpenAI's documented alias to `gpt-5.6-sol`; `*-fast` only adds the priority-tier request described above. GPT-5.6 Pro variants are not listed because, on 2026-08-26, the ChatGPT Codex backend rejected both direct `*-pro` model IDs and `reasoning.mode="pro"` for `gpt-5.6-sol`, `gpt-5.6-terra`, and `gpt-5.6-luna`.
 
 > **Upstream availability note:** model availability can change independently of GPTMock releases. GPTMock may recognize a model ID even when the current ChatGPT Codex backend rejects it for a specific account or subscription. On 2026-04-17, direct probe requests against the current upstream accepted `gpt-5.2`, `gpt-5.3-codex`, `gpt-5.3-codex-spark`, `gpt-5.4`, and `gpt-5.4-mini`, while rejecting `gpt-5`, `gpt-5.1`, `gpt-5-codex`, `gpt-5.1-codex`, `gpt-5.1-codex-mini`, `gpt-5.1-codex-max`, and `gpt-5.2-codex` with: `The '<model>' model is not supported when using Codex with a ChatGPT account.`
 
