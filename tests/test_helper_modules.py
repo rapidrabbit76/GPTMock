@@ -122,6 +122,7 @@ class _ShutdownServer:
     def __init__(self) -> None:
         self.shutdown_called = False
         self.exit_code = 1
+        self.state = "expected-state"
 
     def shutdown(self) -> None:
         self.shutdown_called = True
@@ -261,6 +262,17 @@ class TestAuthHelpers:
         (tmp_path / "auth.json").write_text("not-json")
         assert read_auth_file() is None
 
+    def test_explicit_gptmock_home_never_falls_back_to_codex(self, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+        gptmock_home = tmp_path / "gptmock"
+        codex_home = tmp_path / "codex"
+        gptmock_home.mkdir()
+        codex_home.mkdir()
+        (codex_home / "auth.json").write_text(json.dumps({"tokens": {"access_token": "codex-token"}}))
+        monkeypatch.setenv("GPTMOCK_HOME", str(gptmock_home))
+        monkeypatch.setenv("CODEX_HOME", str(codex_home))
+        monkeypatch.delenv("CHATGPT_LOCAL_HOME", raising=False)
+        assert read_auth_file() is None
+
     def test_write_auth_file_fails_when_home_is_a_file(self, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
         bad_home = tmp_path / "not-a-dir"
         bad_home.write_text("x")
@@ -283,16 +295,6 @@ class TestOAuthHelpers:
         assert qs["client_id"] == ["client-1"]
         assert qs["state"] == ["abc123"]
         assert qs["code_challenge_method"] == ["S256"]
-
-    def test_maybe_obtain_api_key_without_org_or_project_returns_setup_url(self) -> None:
-        server = OAuthHTTPServer.__new__(OAuthHTTPServer)
-        token_data = TokenData(id_token="idtok", access_token="acctok", refresh_token="reftok", account_id="acct")
-        api_key, success_url = server.maybe_obtain_api_key({}, {"chatgpt_plan_type": "plus"}, token_data)
-        assert api_key is None
-        assert success_url is not None and success_url.startswith("http://localhost:1455/success?")
-        qs = parse_qs(urlparse(success_url).query)
-        assert qs["id_token"] == ["idtok"]
-        assert qs["plan_type"] == ["plus"]
 
     def test_persist_auth_writes_expected_file(self, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
         monkeypatch.setenv("GPTMOCK_HOME", str(tmp_path))
@@ -337,19 +339,29 @@ class TestOAuthHelpers:
         handler.do_GET()
         assert handler.error_calls == [(400, "Missing auth code")]
 
+        handler = _make_oauth_handler("/auth/callback?code=abc")
+        handler._shutdown = lambda: setattr(handler.server, "shutdown_called", True)
+        handler.do_GET()
+        assert handler.error_calls == [(400, "Invalid OAuth state")]
+
+        handler = _make_oauth_handler("/auth/callback?code=abc&state=wrong")
+        handler._shutdown = lambda: setattr(handler.server, "shutdown_called", True)
+        handler.do_GET()
+        assert handler.error_calls == [(400, "Invalid OAuth state")]
+
         handler = _make_oauth_handler("/nope")
         handler._shutdown = lambda: setattr(handler.server, "shutdown_called", True)
         handler.do_GET()
         assert handler.error_calls == [(404, "Not Found")]
 
     def test_oauth_handler_exchange_code_and_persist_failure_paths(self) -> None:
-        handler = _make_oauth_handler("/auth/callback?code=abc")
+        handler = _make_oauth_handler("/auth/callback?code=abc&state=expected-state")
         handler._shutdown = lambda: setattr(handler.server, "shutdown_called", True)
         handler._exchange_code = lambda code: (_ for _ in ()).throw(RuntimeError("boom"))
         handler.do_GET()
         assert handler.error_calls == [(500, "Token exchange failed: boom")]
 
-        handler = _make_oauth_handler("/auth/callback?code=abc")
+        handler = _make_oauth_handler("/auth/callback?code=abc&state=expected-state")
         handler._shutdown_after_delay = lambda seconds=2.0: setattr(handler.server, "shutdown_called", True)
         token_data = TokenData(id_token="id", access_token="access", refresh_token="refresh", account_id="acct")
         bundle = AuthBundle(api_key="sk", token_data=token_data, last_refresh="2026-03-08T12:00:00Z")

@@ -4,6 +4,7 @@ import argparse
 import errno
 import json
 import os
+import secrets
 import sys
 import webbrowser
 from datetime import UTC, datetime
@@ -450,8 +451,8 @@ def cmd_login(no_browser: bool, verbose: bool) -> int:
                     if not code:
                         eprint("Input did not contain an auth code. Ignoring.")
                         return
-                    if state and state != httpd.state:
-                        eprint("State mismatch. Ignoring pasted URL for safety.")
+                    if not state or not secrets.compare_digest(state, httpd.state):
+                        eprint("Missing or mismatched OAuth state. Ignoring pasted URL for safety.")
                         return
                     eprint("Received redirect URL. Completing login without callback…")
                     bundle, _ = httpd.exchange_code(code)
@@ -641,9 +642,9 @@ def main() -> None:
     )
     p_serve.add_argument(
         "--cors-origins",
-        default=_env_with_legacy("GPTMOCK_CORS_ORIGINS", default="*"),
+        default=_env_with_legacy("GPTMOCK_CORS_ORIGINS", default=""),
         help=(
-            "Comma-separated list of allowed CORS origins (default: '*' allows all). "
+            "Comma-separated list of allowed CORS origins (default: disabled). "
             "Also configurable via GPTMOCK_CORS_ORIGINS."
         ),
     )

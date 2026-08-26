@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import hmac
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 import httpx
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from gptmock.core.settings import Settings
 from gptmock.routers.health import router as health_router
@@ -43,16 +45,36 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
 
-    # Add CORS middleware
-    origins = [o.strip() for o in settings.cors_origins.split(",")]
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-        expose_headers=["*"],
-    )
+    # Browser access is disabled by default. API clients do not require CORS.
+    origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
+    if origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=origins,
+            allow_credentials="*" not in origins,
+            allow_methods=["*"],
+            allow_headers=["*"],
+            expose_headers=["*"],
+        )
+
+    @app.middleware("http")
+    async def authenticate_proxy_requests(request: Request, call_next):
+        """Require the configured proxy bearer token for model API routes."""
+        api_key = settings.api_key
+        protected = (
+            request.method != "OPTIONS"
+            and request.url.path.startswith(("/v1/", "/api/"))
+        )
+        if protected and isinstance(api_key, str) and api_key:
+            scheme, _, credential = request.headers.get("Authorization", "").partition(" ")
+            valid = scheme.lower() == "bearer" and hmac.compare_digest(credential, api_key)
+            if not valid:
+                return JSONResponse(
+                    {"error": {"message": "Invalid or missing GPTMock API key"}},
+                    status_code=401,
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+        return await call_next(request)
 
     # Register routers
     app.include_router(health_router)

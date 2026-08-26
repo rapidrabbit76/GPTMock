@@ -11,6 +11,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from gptmock.app import create_app
+from gptmock.core.settings import Settings
 from gptmock.schemas.requests import (
     ChatCompletionRequest,
     OllamaChatRequest,
@@ -562,9 +563,9 @@ class TestFastModelVariants:
 
 
 class TestCORSConfig:
-    """Verify CORS middleware is applied."""
+    """Verify browser access is opt-in."""
 
-    def test_cors_headers_present(self, client: TestClient) -> None:
+    def test_cors_headers_absent_by_default(self, client: TestClient) -> None:
         resp = client.options(
             "/v1/models",
             headers={
@@ -572,7 +573,34 @@ class TestCORSConfig:
                 "Access-Control-Request-Method": "GET",
             },
         )
-        assert "access-control-allow-origin" in resp.headers
+        assert "access-control-allow-origin" not in resp.headers
+
+    def test_configured_cors_origin_is_allowed(self) -> None:
+        app = create_app(Settings(cors_origins="http://localhost:3000"))
+        with TestClient(app, raise_server_exceptions=False) as configured_client:
+            resp = configured_client.options(
+                "/v1/models",
+                headers={
+                    "Origin": "http://localhost:3000",
+                    "Access-Control-Request-Method": "GET",
+                },
+            )
+        assert resp.headers["access-control-allow-origin"] == "http://localhost:3000"
+
+
+class TestProxyAuthentication:
+    def test_api_key_protects_model_routes_but_not_health(self) -> None:
+        app = create_app(Settings(api_key="proxy-secret"))
+        with TestClient(app, raise_server_exceptions=False) as protected_client:
+            assert protected_client.get("/health").status_code == 200
+            rejected = protected_client.get("/v1/models")
+            accepted = protected_client.get(
+                "/v1/models",
+                headers={"Authorization": "Bearer proxy-secret"},
+            )
+        assert rejected.status_code == 401
+        assert rejected.headers["www-authenticate"] == "Bearer"
+        assert accepted.status_code == 200
 
 
 # ---------------------------------------------------------------------------

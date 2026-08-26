@@ -45,7 +45,8 @@ class Settings(BaseSettings):
     default_web_search: bool = False
     host: str = "127.0.0.1"
     port: int = 8000
-    cors_origins: str = "*"
+    cors_origins: str = ""
+    api_key: str | None = None
     ollama_version: str = "0.12.10"
 
     @computed_field

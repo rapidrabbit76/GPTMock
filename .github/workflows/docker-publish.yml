@@ -6,7 +6,42 @@ on:
   workflow_dispatch:
 
 jobs:
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Lint and unit tests
+        run: |
+          uv run ruff check gptmock/ tests/
+          uv run pytest tests/ --no-testmon -q
+
+      - name: Build Docker image
+        run: docker build --tag gptmock-ci:verify --file docker/Dockerfile .
+
+      - name: Smoke test hardened Docker image
+        run: >-
+          docker run --rm --read-only
+          --tmpfs /tmp:rw,noexec,nosuid,size=64m
+          --tmpfs /data:rw,nosuid,size=16m,uid=10001,gid=10001,mode=0700
+          --cap-drop ALL --security-opt no-new-privileges:true
+          --env GPTMOCK_HOME=/data
+          --entrypoint /app/.venv/bin/python
+          gptmock-ci:verify
+          -c 'import os; from starlette.testclient import TestClient; from gptmock.app import create_app; from gptmock.core.settings import Settings; from gptmock.infra.auth import write_auth_file; assert os.getuid() == 10001; assert write_auth_file({"tokens": {"access_token": "test"}}); settings = Settings(api_key="proxy-secret"); assert len(settings.base_instructions) > 1000; client = TestClient(create_app(settings)); assert client.get("/health").status_code == 200; assert client.get("/v1/models").status_code == 401; assert client.get("/v1/models", headers={"Authorization": "Bearer proxy-secret"}).status_code == 200'
+
   build-and-push:
+    needs: verify
     runs-on: ubuntu-latest
     permissions:
       contents: read

@@ -84,16 +84,25 @@ No build required — pull the pre-built image and run.
 services:
   serve:
     image: rapidrabbit76/gptmock:latest
-    container_name: gptmock
-    command: ["serve", "--verbose", "--host", "0.0.0.0"]
+    command: ["serve", "--host", "0.0.0.0"]
     ports:
-      - "8000:8000"
-      - "1455:1455"  # OAuth callback port (needed during first-time login)
+      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:1455:1455"  # OAuth callback port (needed during first-time login)
     volumes:
       - gptmock-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    init: true
     environment:
       - GPTMOCK_HOME=/data
       - GPTMOCK_LOGIN_BIND=0.0.0.0
+      # Optional: require this value as the clients' Bearer/API key.
+      # - GPTMOCK_API_KEY=replace-with-a-long-random-value
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health').status==200 else 1)\""]
       interval: 10s
@@ -139,6 +148,8 @@ Once credentials are saved in the volume, just run in the background:
 docker compose up -d serve
 ```
 
+The repository compose file uses the named volume `gptmock-data`. If you used an older `./volumes/gptmock` bind mount, copy its `auth.json` into the named volume before removing the old directory.
+
 ### 4. Verify
 
 ```bash
@@ -155,7 +166,10 @@ Additional Docker-specific variables:
 |----------|---------|-------------|
 | `GPTMOCK_HOME` | `/data` | Auth file directory — mount a volume here |
 | `GPTMOCK_LOGIN_BIND` | `0.0.0.0` | OAuth callback server bind address |
+| `GPTMOCK_API_KEY` | unset | Optional Bearer token required by `/v1/*` and `/api/*` routes |
 | `GPTMOCK_OLLAMA_VERSION` | `0.12.10` | Ollama API compatibility header version |
+
+The published ports bind to host loopback by default. If you expose them on a LAN, configure `GPTMOCK_API_KEY` and an explicit `GPTMOCK_CORS_ORIGINS` allowlist first.
 
 ---
 
@@ -168,7 +182,7 @@ from openai import OpenAI
 
 client = OpenAI(
     base_url="http://127.0.0.1:8000/v1",
-    api_key="anything"  # ignored by gptmock
+    api_key="gptmock-local"  # use GPTMOCK_API_KEY when it is configured
 )
 
 resp = client.chat.completions.create(
@@ -185,7 +199,7 @@ from langchain_openai import ChatOpenAI
 
 llm = ChatOpenAI(
     base_url="http://127.0.0.1:8000/v1",
-    api_key="anything",
+    api_key="gptmock-local",  # use GPTMOCK_API_KEY when it is configured
     model="gpt-5.4",
 )
 response = llm.invoke("hello world")
@@ -415,7 +429,7 @@ Each option can also be set via environment variable. Precedence: **CLI flag > `
 | `--reasoning-compat` | `GPTMOCK_REASONING_COMPAT` | `standard` | How reasoning is exposed: `standard` / `think-tags` / `o3` / `legacy` (`openai` is accepted as an alias for `standard`, `current` as an alias for `legacy`) |
 | `--expose-reasoning-models` | `GPTMOCK_EXPOSE_REASONING_MODELS` | off | Show effort variants as separate models in `/v1/models` |
 | `--enable-web-search` | `GPTMOCK_DEFAULT_WEB_SEARCH` | off | Enable web search by default when `responses_tools` is omitted |
-| `--cors-origins` | `GPTMOCK_CORS_ORIGINS` | `*` | Comma-separated allowed CORS origins |
+| `--cors-origins` | `GPTMOCK_CORS_ORIGINS` | disabled | Comma-separated allowed CORS origins |
 
 > **Legacy aliases**: `CHATGPT_LOCAL_REASONING_EFFORT`, `CHATGPT_LOCAL_REASONING_SUMMARY`, `CHATGPT_LOCAL_REASONING_COMPAT`, `CHATGPT_LOCAL_EXPOSE_REASONING_MODELS`, `CHATGPT_LOCAL_ENABLE_WEB_SEARCH`, `CHATGPT_LOCAL_DEBUG_MODEL` are still accepted as fallbacks.
 ---

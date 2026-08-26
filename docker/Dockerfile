@@ -1,6 +1,6 @@
-FROM python:3.13-slim AS base
+FROM python:3.13.15-slim AS base
 
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.12.6 /uv /usr/local/bin/uv
 
 
 ENV UV_COMPILE_BYTECODE=1 \
@@ -11,6 +11,11 @@ ENV UV_COMPILE_BYTECODE=1 \
     PATH="/app/.venv/bin:$PATH"
 
 WORKDIR /app
+
+RUN groupadd --system --gid 10001 gptmock \
+    && useradd --system --uid 10001 --gid 10001 --create-home gptmock \
+    && mkdir -p /data \
+    && chown gptmock:gptmock /data
 
 # Install dependencies first (cache-friendly layer)
 COPY pyproject.toml uv.lock README.md ./
@@ -24,5 +29,6 @@ COPY prompt.md prompt_gpt5_codex.md ./
 RUN uv sync --frozen --no-dev
 
 EXPOSE 8000
-ENTRYPOINT ["uv", "run" ,"--no-sync","gptmock"]
+USER gptmock:gptmock
+ENTRYPOINT ["/app/.venv/bin/gptmock"]
 CMD ["serve"]

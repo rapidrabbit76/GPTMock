@@ -10,7 +10,7 @@ from starlette.testclient import TestClient
 
 from gptmock.app import create_app
 from gptmock.core.badges import update_gist_badges
-from gptmock.infra.auth import get_home_dir, read_auth_file
+from gptmock.infra.auth import read_auth_file
 from gptmock.services.model_registry import get_model_list
 
 TEST_PROMPT = "Say 'hello' and nothing else."
@@ -73,34 +73,40 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
 
 @pytest.fixture(scope="session", autouse=True)
 def isolated_gptmock_home(tmp_path_factory: pytest.TempPathFactory) -> Generator[Path]:
-    real_home = Path(get_home_dir())
     tmp_home = tmp_path_factory.mktemp("gptmock")
-
-    real_auth = real_home / "auth.json"
-    if real_auth.exists():
-        shutil.copy2(real_auth, tmp_home / "auth.json")
-
-    prev = os.environ.get("GPTMOCK_HOME")
+    previous = {
+        name: os.environ.get(name)
+        for name in ("GPTMOCK_HOME", "CHATGPT_LOCAL_HOME", "CODEX_HOME")
+    }
     os.environ["GPTMOCK_HOME"] = str(tmp_home)
+    os.environ.pop("CHATGPT_LOCAL_HOME", None)
+    os.environ.pop("CODEX_HOME", None)
+
+    if os.getenv("GPTMOCK_RUN_LIVE_TESTS") == "1":
+        source = os.getenv("GPTMOCK_TEST_AUTH_FILE")
+        if source:
+            source_path = Path(source)
+            if source_path.is_file():
+                shutil.copy2(source_path, tmp_home / "auth.json")
 
     yield tmp_home
 
-    tmp_auth = tmp_home / "auth.json"
-    if tmp_auth.exists():
-        real_home.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(tmp_auth, real_auth)
-
-    if prev is None:
-        os.environ.pop("GPTMOCK_HOME", None)
-    else:
-        os.environ["GPTMOCK_HOME"] = prev
+    for name, value in previous.items():
+        if value is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = value
 
 
 @pytest.fixture(autouse=True)
 def skip_without_auth(request: pytest.FixtureRequest) -> None:
     filename = os.path.basename(str(request.fspath))
-    if filename in _INTEGRATION_TEST_FILES and read_auth_file() is None:
-        pytest.skip("No ChatGPT auth — run `gptmock login` first")
+    if filename in _INTEGRATION_TEST_FILES:
+        live_enabled = os.getenv("GPTMOCK_RUN_LIVE_TESTS") == "1"
+        if not live_enabled or read_auth_file() is None:
+            pytest.skip(
+                "Live tests require GPTMOCK_RUN_LIVE_TESTS=1 and GPTMOCK_TEST_AUTH_FILE",
+            )
 
 
 @pytest.fixture(scope="session")

@@ -22,21 +22,23 @@ def eprint(*args, **kwargs) -> None:
 
 
 def get_home_dir() -> str:
-    home = os.getenv("GPTMOCK_HOME") or os.getenv("CHATGPT_LOCAL_HOME") or os.getenv("CODEX_HOME")
+    home = os.getenv("GPTMOCK_HOME") or os.getenv("CHATGPT_LOCAL_HOME")
     if not home:
         home = os.path.expanduser("~/.config/gptmock")
     return home
 
 
 def read_auth_file() -> dict[str, Any] | None:
-    for base in [
-        os.getenv("GPTMOCK_HOME"),
-        os.getenv("CHATGPT_LOCAL_HOME"),
-        os.getenv("CODEX_HOME"),
-        os.path.expanduser("~/.config/gptmock"),
-        os.path.expanduser("~/.chatgpt-local"),
-        os.path.expanduser("~/.codex"),
-    ]:
+    configured_home = os.getenv("GPTMOCK_HOME") or os.getenv("CHATGPT_LOCAL_HOME")
+    candidates = (
+        [configured_home]
+        if configured_home
+        else [
+            os.path.expanduser("~/.config/gptmock"),
+            os.path.expanduser("~/.chatgpt-local"),
+        ]
+    )
+    for base in candidates:
         if not base:
             continue
         path = os.path.join(base, "auth.json")
@@ -58,14 +60,24 @@ def write_auth_file(auth: dict[str, Any]) -> bool:
         eprint(f"ERROR: unable to create auth home directory {home}: {exc}")
         return False
     path = os.path.join(home, "auth.json")
+    temp_path = os.path.join(home, f".auth.{os.getpid()}.{secrets.token_hex(8)}.tmp")
     try:
-        with open(path, "w", encoding="utf-8") as fp:
+        with open(temp_path, "x", encoding="utf-8") as fp:
             if hasattr(os, "fchmod"):
                 os.fchmod(fp.fileno(), 0o600)
             json.dump(auth, fp, indent=2)
+            fp.flush()
+            os.fsync(fp.fileno())
+        os.replace(temp_path, path)
         return True
     except Exception as exc:
         eprint(f"ERROR: unable to write auth file: {exc}")
+        try:
+            os.unlink(temp_path)
+        except FileNotFoundError:
+            pass
+        except OSError:
+            pass
         return False
 
 
