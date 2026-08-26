@@ -82,6 +82,9 @@ def _build_openai_payload(ollama_payload: dict[str, Any], model: str) -> dict[st
 async def _convert_openai_to_ollama_stream(
     response: Any, model: str,
 ) -> AsyncGenerator[bytes]:
+    response_model = model
+    service_tier: str | None = None
+    done_reason: str | None = None
     try:
         async for sse_chunk in response:
             if not sse_chunk.startswith(b"data: "):
@@ -91,13 +94,17 @@ async def _convert_openai_to_ollama_stream(
 
             if json_bytes == b"[DONE]":
                 done_chunk = {
-                    "model": model,
+                    "model": response_model,
                     "created_at": datetime.datetime.now(
                         datetime.UTC,
                     ).isoformat().replace("+00:00", "Z"),
                     "message": {"role": "assistant", "content": ""},
                     "done": True,
                 }
+                if done_reason is not None:
+                    done_chunk["done_reason"] = done_reason
+                if service_tier is not None:
+                    done_chunk["service_tier"] = service_tier
                 yield (json.dumps(done_chunk) + "\n").encode("utf-8")
                 break
 
@@ -106,9 +113,16 @@ async def _convert_openai_to_ollama_stream(
                 if isinstance(openai_chunk.get("error"), dict):
                     yield (json.dumps({"error": openai_chunk["error"].get("message", "upstream error")}) + "\n").encode("utf-8")
                     break
+                if isinstance(openai_chunk.get("model"), str) and openai_chunk["model"]:
+                    response_model = openai_chunk["model"]
+                if isinstance(openai_chunk.get("service_tier"), str):
+                    service_tier = openai_chunk["service_tier"]
                 choices = openai_chunk.get("choices", [])
 
                 if choices:
+                    finish_reason = choices[0].get("finish_reason")
+                    if isinstance(finish_reason, str):
+                        done_reason = finish_reason
                     delta = choices[0].get("delta", {})
                     content = delta.get("content", "")
                     reasoning = delta.get("reasoning_content") or delta.get("reasoning")
@@ -124,13 +138,15 @@ async def _convert_openai_to_ollama_stream(
                         if isinstance(tool_calls, list) and tool_calls:
                             message["tool_calls"] = tool_calls
                         ollama_chunk = {
-                            "model": model,
+                            "model": response_model,
                             "created_at": datetime.datetime.now(
                                 datetime.UTC,
                             ).isoformat().replace("+00:00", "Z"),
                             "message": message,
                             "done": False,
                         }
+                        if service_tier is not None:
+                            ollama_chunk["service_tier"] = service_tier
                         yield (json.dumps(ollama_chunk) + "\n").encode("utf-8")
             except Exception:
                 logger.debug("Failed to parse OpenAI SSE chunk JSON", exc_info=True)
@@ -146,13 +162,16 @@ def _convert_openai_to_ollama_response(
     choice = response.get("choices", [{}])[0]
     message = choice.get("message", {})
 
-    return {
-        "model": model,
+    result = {
+        "model": response.get("model") or model,
         "created_at": datetime.datetime.now(datetime.UTC).isoformat().replace("+00:00", "Z"),
         "message": message,
         "done": True,
         "done_reason": choice.get("finish_reason", "stop"),
     }
+    if response.get("service_tier") is not None:
+        result["service_tier"] = response["service_tier"]
+    return result
 
 
 @router.get("/api/version")

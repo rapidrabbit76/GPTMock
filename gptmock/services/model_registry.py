@@ -18,6 +18,9 @@ MODEL_GROUPS: list[tuple[str, list[str]]] = [
     ("gpt-5.6-terra", ["max", "xhigh", "high", "medium", "low", "none"]),
     ("gpt-5.6-luna", ["max", "xhigh", "high", "medium", "low", "none"]),
     ("gpt-5.4-mini", ["xhigh", "high", "medium", "low"]),
+]
+
+SYNTHETIC_MODEL_GROUPS: list[tuple[str, list[str]]] = [
     ("gpt-5.4-fast", ["xhigh", "high", "medium", "low"]),
     ("gpt-5.5-fast", ["xhigh", "high", "medium", "low"]),
     ("gpt-5.6-fast", ["max", "xhigh", "high", "medium", "low", "none"]),
@@ -27,7 +30,11 @@ MODEL_GROUPS: list[tuple[str, list[str]]] = [
     ("gpt-5.4-mini-fast", ["xhigh", "high", "medium", "low"]),
 ]
 
-_BASE_MODEL_IDS: frozenset[str] = frozenset(base for base, _ in MODEL_GROUPS)
+_BASE_MODEL_IDS: frozenset[str] = frozenset(
+    base for base, _ in (*MODEL_GROUPS, *SYNTHETIC_MODEL_GROUPS)
+)
+
+MODEL_REGISTRY_VERIFIED_AT = "2026-08-26T00:00:00Z"
 
 UPSTREAM_MODEL_ALIASES: dict[str, str] = {
     "gpt-5.6": "gpt-5.6-sol",
@@ -241,16 +248,22 @@ def get_ollama_models(expose_reasoning: bool = False) -> list[dict[str, Any]]:
     model_ids = get_model_list(expose_reasoning)
     models = []
     for model_id in model_ids:
+        upstream_model, _ = resolve_upstream_model(model_id)
         models.append(
             {
                 "name": model_id,
                 "model": model_id,
+                "remote_model": upstream_model,
+                "modified_at": MODEL_REGISTRY_VERIFIED_AT,
+                "size": 0,
+                "digest": "",
                 "details": {
                     "parent_model": "",
                     "format": "remote",
                     "family": "openai",
                     "families": ["openai"],
                 },
+                "capabilities": ["completion", "tools", "thinking"],
             },
         )
     return models

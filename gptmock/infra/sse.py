@@ -21,6 +21,7 @@ from gptmock.core.constants import (
     SSE_REASONING_TEXT_DELTA,
     SSE_RESPONSE_COMPLETED,
     SSE_RESPONSE_FAILED,
+    SSE_RESPONSE_INCOMPLETE,
 )
 from gptmock.core.utils import extract_usage
 
@@ -562,10 +563,17 @@ def _handle_failed(
     ]
 
 
-def _handle_completed(
+def _incomplete_finish_reason(evt: dict[str, Any]) -> str:
+    response = evt.get("response")
+    details = response.get("incomplete_details") if isinstance(response, dict) else None
+    reason = details.get("reason") if isinstance(details, dict) else None
+    return "content_filter" if reason == "content_filter" else "length"
+
+
+def _finalize_chat_stream(
     ctx: SSEChatContext,
     evt: dict[str, Any],
-    kind: str,
+    finish_reason: str,
 ) -> list[bytes]:
     out: list[bytes] = []
 
@@ -579,7 +587,7 @@ def _handle_completed(
         ctx.think_closed = True
 
     if not ctx.sent_stop_chunk:
-        terminal = "tool_calls" if ctx.tool_call_detected else "stop"
+        terminal = "tool_calls" if ctx.tool_call_detected else finish_reason
         out.append(ctx.chunk({}, finish_reason=terminal))
         ctx.sent_stop_chunk = True
 
@@ -610,6 +618,22 @@ def _handle_completed(
     return out
 
 
+def _handle_completed(
+    ctx: SSEChatContext,
+    evt: dict[str, Any],
+    kind: str,
+) -> list[bytes]:
+    return _finalize_chat_stream(ctx, evt, "stop")
+
+
+def _handle_incomplete(
+    ctx: SSEChatContext,
+    evt: dict[str, Any],
+    kind: str,
+) -> list[bytes]:
+    return _finalize_chat_stream(ctx, evt, _incomplete_finish_reason(evt))
+
+
 # ---------------------------------------------------------------------------
 # Dispatch table
 # ---------------------------------------------------------------------------
@@ -629,6 +653,7 @@ _CHAT_DISPATCH: dict[
     SSE_OUTPUT_TEXT_DONE: _handle_text_done,
     SSE_RESPONSE_FAILED: _handle_failed,
     SSE_RESPONSE_COMPLETED: _handle_completed,
+    SSE_RESPONSE_INCOMPLETE: _handle_incomplete,
 }
 
 
@@ -837,6 +862,19 @@ async def sse_translate_text(
                         yield _chunk({"text": ""}, usage=upstream_usage)
                     except Exception:
                         logger.debug("Failed to emit final usage chunk", exc_info=True)
+                yield b"data: [DONE]\n\n"
+                done = True
+                break
+            elif kind == SSE_RESPONSE_INCOMPLETE:
+                m = extract_usage(evt)
+                if m:
+                    upstream_usage = m
+                yield _chunk(
+                    {"text": ""},
+                    finish_reason=_incomplete_finish_reason(evt),
+                )
+                if include_usage and upstream_usage:
+                    yield _chunk({"text": ""}, usage=upstream_usage)
                 yield b"data: [DONE]\n\n"
                 done = True
                 break

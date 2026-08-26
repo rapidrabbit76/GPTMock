@@ -371,8 +371,11 @@ class TestModelRegistry:
             assert "name" in m
             assert "model" in m
             assert m["details"]["format"] == "remote"
-            assert "size" not in m
-            assert "digest" not in m
+            assert m["size"] == 0
+            assert m["digest"] == ""
+            assert m["modified_at"] == "2026-08-26T00:00:00Z"
+            assert isinstance(m["remote_model"], str)
+            assert m["capabilities"] == ["completion", "tools", "thinking"]
 
     def test_rejected_models_are_not_advertised(self) -> None:
         models = get_model_list(expose_reasoning=False)
@@ -392,39 +395,25 @@ class TestModelRegistry:
 class TestFastModelVariants:
     """Verify synthetic 'fast' aliases translate to base model + service_tier=priority."""
 
-    def test_fast_variants_registered_in_model_list(self) -> None:
+    def test_fast_variants_are_not_advertised(self) -> None:
         models = get_model_list(expose_reasoning=False)
         assert "gpt-5.5" in models
         assert "gpt-5.6" in models
-        assert "gpt-5.6-fast" in models
         for family in ("sol", "terra", "luna"):
             assert f"gpt-5.6-{family}" in models
-            assert f"gpt-5.6-{family}-fast" in models
-        assert "gpt-5.4-fast" in models
-        assert "gpt-5.5-fast" in models
-        assert "gpt-5.4-mini-fast" in models
+        assert not any("-fast" in model for model in models)
 
-    def test_fast_variants_expose_reasoning_variants(self) -> None:
+    def test_fast_reasoning_variants_are_not_advertised(self) -> None:
         models = get_model_list(expose_reasoning=True)
-        for effort in ("low", "medium", "high", "xhigh"):
-            assert f"gpt-5.4-fast-{effort}" in models
-            assert f"gpt-5.5-fast-{effort}" in models
-            assert f"gpt-5.6-sol-fast-{effort}" in models
-            assert f"gpt-5.6-terra-fast-{effort}" in models
-            assert f"gpt-5.6-luna-fast-{effort}" in models
-            assert f"gpt-5.4-mini-fast-{effort}" in models
+        assert not any("-fast" in model for model in models)
 
-    def test_fast_variants_reasoning_metadata(self) -> None:
+    def test_verified_variants_reasoning_metadata(self) -> None:
         models = {m["id"]: m for m in get_openai_models(expose_reasoning=False)}
         expected_efforts = ["low", "medium", "high", "xhigh"]
         gpt56_efforts = ["none", "low", "medium", "high", "xhigh", "max"]
         assert models["gpt-5.5"]["reasoning"]["supported_efforts"] == expected_efforts
         for family in ("sol", "terra", "luna"):
             assert models[f"gpt-5.6-{family}"]["reasoning"]["supported_efforts"] == gpt56_efforts
-            assert models[f"gpt-5.6-{family}-fast"]["reasoning"]["supported_efforts"] == gpt56_efforts
-        assert models["gpt-5.4-fast"]["reasoning"]["supported_efforts"] == expected_efforts
-        assert models["gpt-5.5-fast"]["reasoning"]["supported_efforts"] == expected_efforts
-        assert models["gpt-5.4-mini-fast"]["reasoning"]["supported_efforts"] == expected_efforts
 
     def test_normalize_fast_aliases(self) -> None:
         assert normalize_model_name("gpt-5.4-fast") == "gpt-5.4-fast"
@@ -531,33 +520,25 @@ class TestFastModelVariants:
         assert get_instructions_for_model("gpt-5.6-sol-fast", base, codex) == base
         assert get_instructions_for_model("gpt-5.4-mini-fast", base, codex) == base
 
-    def test_fast_variants_served_by_openai_models_endpoint(self, client: TestClient) -> None:
+    def test_fast_variants_hidden_from_openai_models_endpoint(self, client: TestClient) -> None:
         resp = client.get("/v1/models")
         assert resp.status_code == 200
         ids = {m["id"] for m in resp.json()["data"]}
         assert "gpt-5.5" in ids
         assert "gpt-5.6" in ids
-        assert "gpt-5.6-fast" in ids
         for family in ("sol", "terra", "luna"):
             assert f"gpt-5.6-{family}" in ids
-            assert f"gpt-5.6-{family}-fast" in ids
-        assert "gpt-5.4-fast" in ids
-        assert "gpt-5.5-fast" in ids
-        assert "gpt-5.4-mini-fast" in ids
+        assert not any("-fast" in model_id for model_id in ids)
 
-    def test_fast_variants_served_by_ollama_tags_endpoint(self, client: TestClient) -> None:
+    def test_fast_variants_hidden_from_ollama_tags_endpoint(self, client: TestClient) -> None:
         resp = client.get("/api/tags")
         assert resp.status_code == 200
         names = {m["name"] for m in resp.json()["models"]}
         assert "gpt-5.5" in names
         assert "gpt-5.6" in names
-        assert "gpt-5.6-fast" in names
         for family in ("sol", "terra", "luna"):
             assert f"gpt-5.6-{family}" in names
-            assert f"gpt-5.6-{family}-fast" in names
-        assert "gpt-5.4-fast" in names
-        assert "gpt-5.5-fast" in names
-        assert "gpt-5.4-mini-fast" in names
+        assert not any("-fast" in name for name in names)
 
 
 # ---------------------------------------------------------------------------

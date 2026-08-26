@@ -18,6 +18,7 @@ from gptmock.core.constants import (
     SSE_REASONING_TEXT_DELTA,
     SSE_RESPONSE_COMPLETED,
     SSE_RESPONSE_FAILED,
+    SSE_RESPONSE_INCOMPLETE,
 )
 from gptmock.core.logging import log_json
 from gptmock.core.settings import Settings
@@ -156,6 +157,7 @@ async def _proxy_stream(upstream: httpx.Response) -> AsyncGenerator[str]:
                 if isinstance(event, dict) and event.get("type") in (
                     SSE_RESPONSE_COMPLETED,
                     SSE_RESPONSE_FAILED,
+                    SSE_RESPONSE_INCOMPLETE,
                 ):
                     terminal_received = True
             yield f"{line}\n"
@@ -285,7 +287,7 @@ def _handle_content_part_done(state: CollectorState, evt: dict[str, Any]) -> Non
 def _handle_response_terminal(
     state: CollectorState, evt: dict[str, Any], kind: str,
 ) -> bool:
-    """Handle response.completed or response.failed. Returns True if loop should break."""
+    """Handle a terminal response event. Returns True if collection should stop."""
 
     state.terminal_received = True
     response_obj = (
@@ -303,6 +305,10 @@ def _handle_response_terminal(
                     state.error_message = err_message
         if not state.error_message:
             state.error_message = "response.failed"
+    elif kind == SSE_RESPONSE_INCOMPLETE:
+        state.status = "incomplete"
+    else:
+        state.status = "completed"
     return True
 
 
@@ -389,7 +395,7 @@ def _build_responses_api_result(
                     0,
                     {
                         "type": "message",
-                        "status": "completed",
+                        "status": state.status,
                         "role": "assistant",
                         "content": [content_item],
                     },
@@ -422,7 +428,7 @@ def _build_responses_api_result(
         output = [
             {
                 "type": "message",
-                "status": "completed",
+                "status": state.status,
                 "role": "assistant",
                 "content": [content_item],
             },
@@ -524,7 +530,11 @@ async def _collect_non_stream_state(upstream: httpx.Response) -> CollectorState:
             handler = _RESPONSES_EVENT_HANDLERS.get(kind)
             if handler is not None:
                 handler(state, evt)
-            elif kind in (SSE_RESPONSE_COMPLETED, SSE_RESPONSE_FAILED):
+            elif kind in (
+                SSE_RESPONSE_COMPLETED,
+                SSE_RESPONSE_FAILED,
+                SSE_RESPONSE_INCOMPLETE,
+            ):
                 if _handle_response_terminal(state, evt, kind):
                     break
     finally:
@@ -734,7 +744,7 @@ async def process_responses_api(
 
     state = await _collect_non_stream_state(upstream)
     for _ in range(_MAX_VIEW_IMAGE_FOLLOWUPS):
-        if state.error_message or not view_image_enabled:
+        if state.status != "completed" or state.error_message or not view_image_enabled:
             break
         if not state.function_calls or not all(is_view_image_tool_call(call) for call in state.function_calls):
             break

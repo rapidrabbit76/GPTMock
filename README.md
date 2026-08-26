@@ -7,8 +7,8 @@
 <p align="center"><strong>OpenAI &amp; Ollama compatible API powered by your ChatGPT account.</strong></p>
 
 <p align="center">
-  <a href="https://github.com/rapidrabbit76/GPTMock"><img alt="Tests" src="https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/rapidrabbit76/255a945245d92c731d002ee3be93a74c/raw/gptmock-tests.json"></a>
-  <a href="https://github.com/rapidrabbit76/GPTMock"><img alt="Coverage" src="https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/rapidrabbit76/255a945245d92c731d002ee3be93a74c/raw/gptmock-coverage.json"></a>
+  <a href="https://github.com/binary1215/GPTMock"><img alt="Tests" src="https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/rapidrabbit76/255a945245d92c731d002ee3be93a74c/raw/gptmock-tests.json"></a>
+  <a href="https://github.com/binary1215/GPTMock"><img alt="Coverage" src="https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/rapidrabbit76/255a945245d92c731d002ee3be93a74c/raw/gptmock-coverage.json"></a>
   <a href="https://www.python.org/downloads/"><img alt="Python 3.13+" src="https://img.shields.io/badge/python-3.13%2B-blue.svg"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green.svg"></a>
 </p>
@@ -27,50 +27,6 @@ gptmock runs a local server that proxies requests to the ChatGPT Codex backend, 
 - **Docker Engine 24+ with Docker Compose v2** (recommended deployment)
 - **Paid ChatGPT account** (Plus / Pro / Team / Enterprise)
 - **Python 3.13+** and [`uv`](https://docs.astral.sh/uv/getting-started/installation/) only for direct, non-Docker usage
-
----
-
-## Direct Install (uvx)
-
-This is the non-Docker development path. No clone or persistent installation is needed.
-
-### 1. Login
-
-```bash
-uvx gptmock login
-```
-
-A browser window will open for ChatGPT OAuth. After login, tokens are saved to `~/.config/gptmock/auth.json`.
-
-### 2. Start the server
-
-```bash
-uvx gptmock serve
-```
-
-The server starts at `http://127.0.0.1:8000`. Use `http://127.0.0.1:8000/v1` as your OpenAI base URL.
-
-### 3. Verify
-
-```bash
-uvx gptmock info
-```
-
-### Tip: Shell Alias
-
-```bash
-alias gptmock='uvx gptmock'
-
-gptmock login
-gptmock serve --port 9000
-gptmock info
-```
-
-> **Note:** To install directly from the GitHub repository instead of PyPI:
-> ```bash
-> uvx --from "git+https://github.com/rapidrabbit76/GPTMock" gptmock login
-> uvx --from "git+https://github.com/rapidrabbit76/GPTMock" gptmock serve
-> ```
 
 ---
 
@@ -142,6 +98,50 @@ Additional Docker-specific variables:
 | `GPTMOCK_OLLAMA_VERSION` | `0.12.10` | Ollama API compatibility header version |
 
 The published ports bind to host loopback by default. If you expose them on a LAN, configure `GPTMOCK_API_KEY` and an explicit `GPTMOCK_CORS_ORIGINS` allowlist first.
+
+---
+
+## Direct Install (uvx)
+
+This is the non-Docker development path. No clone or persistent installation is needed.
+
+### 1. Login
+
+```bash
+uvx gptmock login
+```
+
+A browser window will open for ChatGPT OAuth. After login, tokens are saved to `~/.config/gptmock/auth.json`.
+
+### 2. Start the server
+
+```bash
+uvx gptmock serve
+```
+
+The server starts at `http://127.0.0.1:8000`. Use `http://127.0.0.1:8000/v1` as your OpenAI base URL.
+
+### 3. Verify
+
+```bash
+uvx gptmock info
+```
+
+### Tip: Shell Alias
+
+```bash
+alias gptmock='uvx gptmock'
+
+gptmock login
+gptmock serve --port 9000
+gptmock info
+```
+
+> **Note:** To install directly from the GitHub repository instead of PyPI:
+> ```bash
+> uvx --from "git+https://github.com/binary1215/GPTMock" gptmock login
+> uvx --from "git+https://github.com/binary1215/GPTMock" gptmock serve
+> ```
 
 ---
 
@@ -319,21 +319,14 @@ Supported image content types are PNG, JPEG, GIF, and WebP. `detail: "original"`
 | `gpt-5.4` | `low` / `medium` / `high` / `xhigh` | ✅ Verified upstream |
 | `gpt-5.5` | `low` / `medium` / `high` / `xhigh` | ✅ Verified upstream |
 | `gpt-5.6` | `none` / `low` / `medium` / `high` / `xhigh` / `max` | ✅ Verified alias; upstream resolves it to `gpt-5.6-sol` |
-| `gpt-5.6-fast` | `none` / `low` / `medium` / `high` / `xhigh` / `max` | ⚠️ Synthetic priority request; latest probe was served as `default` |
 | `gpt-5.6-sol` | `none` / `low` / `medium` / `high` / `xhigh` / `max` | ✅ Verified upstream |
-| `gpt-5.6-sol-fast` | `none` / `low` / `medium` / `high` / `xhigh` / `max` | ⚠️ Synthetic priority request; latest probe was served as `default` |
 | `gpt-5.6-terra` | `none` / `low` / `medium` / `high` / `xhigh` / `max` | ✅ Verified upstream |
-| `gpt-5.6-terra-fast` | `none` / `low` / `medium` / `high` / `xhigh` / `max` | ⚠️ Synthetic priority request; latest probe was served as `default` |
 | `gpt-5.6-luna` | `none` / `low` / `medium` / `high` / `xhigh` / `max` | ✅ Verified upstream |
-| `gpt-5.6-luna-fast` | `none` / `low` / `medium` / `high` / `xhigh` / `max` | ⚠️ Synthetic priority request; latest probe was served as `default` |
 | `gpt-5.4-mini` | `low` / `medium` / `high` / `xhigh` | ✅ Verified upstream |
-| `gpt-5.4-fast` | `low` / `medium` / `high` / `xhigh` | ⚠️ Synthetic priority request; latest probe was served as `default` |
-| `gpt-5.5-fast` | `low` / `medium` / `high` / `xhigh` | ⚠️ Synthetic priority request; latest probe was served as `default` |
-| `gpt-5.4-mini-fast` | `low` / `medium` / `high` / `xhigh` | ⚠️ Synthetic priority request; latest probe was served as `default` |
 
-> **Fast variants** (`*-fast`) are synthetic aliases that keep the same base model and request `service_tier="priority"` in the upstream payload. They do not guarantee priority service. All seven aliases were accepted on 2026-08-26, but the response reported `service_tier="default"` for every probe.
+> **Fast compatibility aliases:** `*-fast` names are accepted when requested directly and add `service_tier="priority"` to the same verified base-model request. They are not advertised by `/v1/models` or `/api/tags`, do not guarantee priority service, and the actual upstream `service_tier` is returned unchanged. All seven aliases were accepted on 2026-08-26, but every probe reported `service_tier="default"`.
 
-> **GPT-5.6 compatibility note:** GPTMock exposes only verified GPT-5.6 names. `gpt-5.6` follows OpenAI's documented alias to `gpt-5.6-sol`; `*-fast` only adds the priority-tier request described above. GPT-5.6 Pro variants are not listed because, on 2026-08-26, the ChatGPT Codex backend rejected both direct `*-pro` model IDs and `reasoning.mode="pro"` for `gpt-5.6-sol`, `gpt-5.6-terra`, and `gpt-5.6-luna`.
+> **GPT-5.6 compatibility note:** GPTMock exposes only verified GPT-5.6 model names. `gpt-5.6` follows OpenAI's documented alias to `gpt-5.6-sol`. OpenAI defines Pro as `reasoning.mode="pro"` on the same model rather than as a `*-pro` model ID, so GPTMock passes that request through unchanged. The ChatGPT Codex backend rejected both forms in probes on 2026-08-26; GPTMock therefore advertises no Pro model slug and preserves any upstream rejection instead of downgrading the request.
 
 > **Upstream availability note:** model availability can change independently of GPTMock releases. The advertised list reflects direct probes made on 2026-08-26. `gpt-5`, `gpt-5.1`, `gpt-5.2`, `gpt-5-codex`, `gpt-5.1-codex`, `gpt-5.1-codex-mini`, `gpt-5.1-codex-max`, `gpt-5.2-codex`, and `gpt-5.3-codex` were rejected and are therefore not advertised.
 
@@ -360,14 +353,14 @@ Rejected names are omitted from `/v1/models` and `/api/tags`. A client can still
 
 ## Features
 
-- **Streaming & Non-streaming** — real-time SSE and buffered JSON responses
+- **Streaming & Non-streaming** — real-time SSE and buffered JSON responses, including explicit incomplete terminal states
 - **Structured Output** — `response_format` with `json_schema` / `json_object` support
 - **Tool / Function Calling** — including web search with URL citation annotations via `responses_tools`
 - **Image Generation** — Responses API `image_generation` tool support with base64 PNG output
 - **Local Image Inspection** — Codex-compatible `view_image` function tool for allowed local image paths
 - **Thinking Summaries** — `<think>` tags, `o3` reasoning format, or legacy mode
 - **Responses API** — `POST /v1/responses` for LangChain and other clients that auto-route codex models
-- **Ollama Compatibility** — drop-in replacement for Ollama API consumers
+- **Ollama Compatibility** — remote-model metadata without fabricated GGUF sizes, digests, or local evaluation timings
 - **Auto Token Refresh** — JWT tokens are refreshed automatically before expiry
 
 ---

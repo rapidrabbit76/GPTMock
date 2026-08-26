@@ -16,6 +16,11 @@ def _completed_response(response: dict[str, Any]) -> httpx.Response:
     return httpx.Response(200, content=f"data: {json.dumps(event)}\n\n".encode())
 
 
+def _incomplete_response(response: dict[str, Any]) -> httpx.Response:
+    event = {"type": "response.incomplete", "response": response}
+    return httpx.Response(200, content=f"data: {json.dumps(event)}\n\n".encode())
+
+
 @pytest.mark.asyncio
 async def test_chat_request_preserves_roles_tools_and_supported_options(
     monkeypatch: pytest.MonkeyPatch,
@@ -61,6 +66,7 @@ async def test_chat_request_preserves_roles_tools_and_supported_options(
         "tool_choice": "required",
         "max_completion_tokens": 321,
         "service_tier": "priority",
+        "reasoning": {"effort": "max", "mode": "pro"},
     }
     async with httpx.AsyncClient() as client:
         result, is_stream = await chat_module.process_chat_completion(
@@ -77,6 +83,11 @@ async def test_chat_request_preserves_roles_tools_and_supported_options(
     assert captured[0]["tool_choice"] == "required"
     assert captured[0]["max_output_tokens"] == 321
     assert captured[0]["service_tier"] == "priority"
+    assert captured[0]["reasoning"] == {
+        "effort": "max",
+        "summary": "auto",
+        "mode": "pro",
+    }
 
 
 @pytest.mark.asyncio
@@ -123,6 +134,7 @@ async def test_responses_request_preserves_input_options_and_actual_response(
         "service_tier": "priority",
         "max_output_tokens": 123,
         "metadata": {"trace": "semantic-test"},
+        "reasoning": {"effort": "max", "mode": "pro"},
     }
     async with httpx.AsyncClient() as client:
         result, is_stream = await responses_module.process_responses_api(
@@ -137,6 +149,11 @@ async def test_responses_request_preserves_input_options_and_actual_response(
     assert captured[0]["service_tier"] == "priority"
     assert captured[0]["max_output_tokens"] == 123
     assert captured[0]["metadata"] == {"trace": "semantic-test"}
+    assert captured[0]["reasoning"] == {
+        "effort": "max",
+        "summary": "auto",
+        "mode": "pro",
+    }
     assert result["model"] == "gpt-5.6-luna"
     assert result["service_tier"] == "default"
     assert result["previous_response_id"] == "resp_previous"
@@ -177,6 +194,85 @@ async def test_rejected_responses_tool_is_not_silently_removed(
 
 
 @pytest.mark.asyncio
+async def test_responses_non_stream_preserves_incomplete_terminal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    responses_module = importlib.import_module("gptmock.services.responses")
+
+    async def fake_auth() -> tuple[str, str]:
+        return "token", "account"
+
+    async def fake_send(payload: dict[str, Any], *args: Any, **kwargs: Any) -> httpx.Response:
+        del payload, args, kwargs
+        return _incomplete_response(
+            {
+                "id": "resp_incomplete",
+                "status": "incomplete",
+                "model": "gpt-5.6-luna",
+                "service_tier": "default",
+                "incomplete_details": {"reason": "max_output_tokens"},
+                "output": [],
+            },
+        )
+
+    monkeypatch.setattr(responses_module, "get_effective_chatgpt_auth", fake_auth)
+    monkeypatch.setattr(responses_module, "send_upstream_request", fake_send)
+
+    async with httpx.AsyncClient() as client:
+        result, is_stream = await responses_module.process_responses_api(
+            {"model": "gpt-5.6-luna", "input": "hello"},
+            Settings(),
+            client,
+        )
+
+    assert is_stream is False
+    assert result["status"] == "incomplete"
+    assert result["incomplete_details"] == {"reason": "max_output_tokens"}
+    assert result["model"] == "gpt-5.6-luna"
+    assert result["service_tier"] == "default"
+
+
+@pytest.mark.asyncio
+async def test_chat_non_stream_maps_incomplete_to_length(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    chat_module = importlib.import_module("gptmock.services.chat")
+
+    async def fake_auth() -> tuple[str, str]:
+        return "token", "account"
+
+    async def fake_send(payload: dict[str, Any], *args: Any, **kwargs: Any) -> httpx.Response:
+        del payload, args, kwargs
+        return _incomplete_response(
+            {
+                "id": "resp_incomplete",
+                "status": "incomplete",
+                "model": "gpt-5.6-terra",
+                "service_tier": "default",
+                "incomplete_details": {"reason": "max_output_tokens"},
+            },
+        )
+
+    monkeypatch.setattr(chat_module, "get_effective_chatgpt_auth", fake_auth)
+    monkeypatch.setattr(chat_module, "send_upstream_request", fake_send)
+
+    async with httpx.AsyncClient() as client:
+        result, is_stream = await chat_module.process_chat_completion(
+            {
+                "model": "gpt-5.6-terra",
+                "messages": [{"role": "user", "content": "hello"}],
+            },
+            Settings(),
+            client,
+        )
+
+    assert is_stream is False
+    assert result["choices"][0]["finish_reason"] == "length"
+    assert result["model"] == "gpt-5.6-terra"
+    assert result["service_tier"] == "default"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("translator", [sse_translate_chat, sse_translate_text])
 async def test_stream_failure_emits_error_and_done(translator: Any) -> None:
     event = {
@@ -191,6 +287,92 @@ async def test_stream_failure_emits_error_and_done(translator: Any) -> None:
     rendered = [frame.decode() if isinstance(frame, bytes) else frame for frame in frames]
     assert any('"message": "boom"' in frame for frame in rendered)
     assert rendered[-1].strip() == "data: [DONE]"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("translator", [sse_translate_chat, sse_translate_text])
+async def test_stream_incomplete_emits_length_and_done(translator: Any) -> None:
+    event = {
+        "type": "response.incomplete",
+        "response": {
+            "id": "resp_incomplete",
+            "status": "incomplete",
+            "incomplete_details": {"reason": "max_output_tokens"},
+        },
+    }
+    upstream = httpx.Response(
+        200,
+        content=f"data: {json.dumps(event)}\n\n".encode(),
+    )
+    frames = [frame async for frame in translator(upstream, "gpt-5.6-luna", 1)]
+    rendered = [frame.decode() if isinstance(frame, bytes) else frame for frame in frames]
+    assert any('"finish_reason": "length"' in frame for frame in rendered)
+    assert rendered[-1].strip() == "data: [DONE]"
+
+
+@pytest.mark.asyncio
+async def test_responses_stream_incomplete_is_a_terminal_event() -> None:
+    responses_module = importlib.import_module("gptmock.services.responses")
+    event = {
+        "type": "response.incomplete",
+        "response": {"id": "resp_incomplete", "status": "incomplete"},
+    }
+    upstream = httpx.Response(
+        200,
+        content=f"data: {json.dumps(event)}\n\n".encode(),
+    )
+
+    frames = [frame async for frame in responses_module._proxy_stream(upstream)]
+
+    assert any("response.incomplete" in frame for frame in frames)
+    assert not any("response.failed" in frame for frame in frames)
+
+
+def test_ollama_non_stream_preserves_actual_model_and_tier() -> None:
+    ollama_module = importlib.import_module("gptmock.routers.ollama")
+    result = ollama_module._convert_openai_to_ollama_response(
+        {
+            "model": "gpt-5.6-sol",
+            "service_tier": "default",
+            "choices": [
+                {
+                    "message": {"role": "assistant", "content": "hello"},
+                    "finish_reason": "stop",
+                },
+            ],
+        },
+        "gpt-5.6-fast",
+    )
+
+    assert result["model"] == "gpt-5.6-sol"
+    assert result["service_tier"] == "default"
+
+
+@pytest.mark.asyncio
+async def test_ollama_stream_preserves_incomplete_reason_model_and_tier() -> None:
+    ollama_module = importlib.import_module("gptmock.routers.ollama")
+
+    async def openai_frames():
+        terminal = {
+            "model": "gpt-5.6-sol",
+            "service_tier": "default",
+            "choices": [{"delta": {}, "finish_reason": "length"}],
+        }
+        yield f"data: {json.dumps(terminal)}\n\n".encode()
+        yield b"data: [DONE]\n\n"
+
+    frames = [
+        json.loads(frame)
+        async for frame in ollama_module._convert_openai_to_ollama_stream(
+            openai_frames(),
+            "gpt-5.6-fast",
+        )
+    ]
+
+    assert frames[-1]["done"] is True
+    assert frames[-1]["done_reason"] == "length"
+    assert frames[-1]["model"] == "gpt-5.6-sol"
+    assert frames[-1]["service_tier"] == "default"
 
 
 @pytest.mark.asyncio

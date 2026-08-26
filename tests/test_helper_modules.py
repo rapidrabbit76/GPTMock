@@ -433,6 +433,15 @@ class TestResponsesHelpers:
             }
         ]
 
+        incomplete = CollectorState()
+        assert _handle_response_terminal(
+            incomplete,
+            {"response": {"status": "incomplete"}},
+            "response.incomplete",
+        ) is True
+        assert incomplete.status == "incomplete"
+        assert incomplete.error_message is None
+
         state = CollectorState(
             response_id="resp_1",
             created_at=2.0,
@@ -1152,6 +1161,13 @@ class TestReasoningHelpers:
         assert build_reasoning_param("medium", "auto", {"effort": "low", "summary": "detailed"}, allowed_efforts={"low", "medium"}) == {"effort": "low", "summary": "detailed"}
         assert build_reasoning_param("medium", "none", None) == {"effort": "medium"}
         assert build_reasoning_param("medium", "auto", {"effort": "max"}, allowed_efforts={"medium", "max"}) == {"effort": "max", "summary": "auto"}
+        assert build_reasoning_param("medium", "auto", {"mode": "pro"}) == {
+            "effort": "medium",
+            "summary": "auto",
+            "mode": "pro",
+        }
+        with pytest.raises(ValueError, match="Unsupported reasoning mode"):
+            build_reasoning_param("medium", "auto", {"mode": "standard"})
 
     def test_apply_reasoning_to_message_handles_all_compat_modes(self) -> None:
         assert apply_reasoning_to_message({"content": "hello"}, "sum", "full", "o3")["reasoning"]["content"][0]["text"] == "sum\n\nfull"

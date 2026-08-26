@@ -16,6 +16,7 @@ from gptmock.core.constants import (
     SSE_REASONING_TEXT_DELTA,
     SSE_RESPONSE_COMPLETED,
     SSE_RESPONSE_FAILED,
+    SSE_RESPONSE_INCOMPLETE,
 )
 from gptmock.core.logging import log_json
 from gptmock.core.settings import Settings
@@ -627,7 +628,7 @@ def _handle_chat_sse_event(
             "response.failed",
             True,
         )
-    if kind == SSE_RESPONSE_COMPLETED:
+    if kind in (SSE_RESPONSE_COMPLETED, SSE_RESPONSE_INCOMPLETE):
         return full_text, reasoning_summary_text, reasoning_full_text, None, True
     return full_text, reasoning_summary_text, reasoning_full_text, None, False
 
@@ -679,10 +680,14 @@ async def _collect_chat_sse_events(
             kind = evt.get("type")
             response = evt.get("response")
             if isinstance(response, dict):
-                for key in ("model", "service_tier"):
+                for key in ("model", "service_tier", "status", "incomplete_details"):
                     if response.get(key) is not None:
                         response_metadata[key] = response[key]
-            if kind in (SSE_RESPONSE_COMPLETED, SSE_RESPONSE_FAILED):
+            if kind in (
+                SSE_RESPONSE_COMPLETED,
+                SSE_RESPONSE_FAILED,
+                SSE_RESPONSE_INCOMPLETE,
+            ):
                 terminal_received = True
             (
                 full_text,
@@ -762,7 +767,7 @@ async def _adapt_non_streaming_response(
             ctx.settings.reasoning_compat,
         )
 
-    finish_reason = "tool_calls" if tool_calls else "stop"
+    finish_reason = "tool_calls" if tool_calls else _finish_reason(response_metadata)
 
     completion: dict[str, Any] = {
         "id": response_id or "chatcmpl",
@@ -785,6 +790,14 @@ async def _adapt_non_streaming_response(
         log_json("OUT chat completion", completion, logger=logger.debug)
 
     return completion, False
+
+
+def _finish_reason(response_metadata: dict[str, Any]) -> str:
+    if response_metadata.get("status") != "incomplete":
+        return "stop"
+    details = response_metadata.get("incomplete_details")
+    reason = details.get("reason") if isinstance(details, dict) else None
+    return "content_filter" if reason == "content_filter" else "length"
 
 
 async def process_chat_completion(
@@ -964,6 +977,7 @@ async def process_text_completion(
     usage_obj: dict[str, int] | None = None
     response_model: str | None = None
     service_tier: str | None = None
+    finish_reason = "stop"
     terminal_received = False
     error_message: str | None = None
 
@@ -1008,6 +1022,11 @@ async def process_text_completion(
             elif kind == SSE_RESPONSE_COMPLETED:
                 terminal_received = True
                 break
+            elif kind == SSE_RESPONSE_INCOMPLETE:
+                terminal_received = True
+                metadata = response if isinstance(response, dict) else {"status": "incomplete"}
+                finish_reason = _finish_reason({**metadata, "status": "incomplete"})
+                break
             elif kind == SSE_RESPONSE_FAILED:
                 terminal_received = True
                 response = evt.get("response")
@@ -1036,7 +1055,7 @@ async def process_text_completion(
             {
                 "index": 0,
                 "text": full_text,
-                "finish_reason": "stop",
+                "finish_reason": finish_reason,
                 "logprobs": None,
             },
         ],
