@@ -24,7 +24,7 @@ from gptmock.core.logging import log_json
 from gptmock.core.settings import Settings
 from gptmock.infra.auth import get_effective_chatgpt_auth
 from gptmock.infra.session import ensure_session_id
-from gptmock.services.chat import ChatCompletionError
+from gptmock.services.chat import ChatCompletionError, reject_unsupported_parameters
 from gptmock.services.model_registry import (
     apply_model_overrides,
     get_instructions_for_model,
@@ -33,6 +33,7 @@ from gptmock.services.model_registry import (
 )
 from gptmock.services.reasoning import allowed_efforts_for_model, build_reasoning_param
 from gptmock.services.upstream import UpstreamError, send_upstream_request
+from gptmock.services.upstream_errors import extract_upstream_error_message
 from gptmock.services.view_image import (
     execute_view_image,
     is_view_image_tool_call,
@@ -567,16 +568,6 @@ def _view_image_followup_input(
     return followup
 
 
-def _extract_upstream_error_message(err_body: Any) -> str:
-    if isinstance(err_body, dict):
-        err_obj = err_body.get("error")
-        if isinstance(err_obj, dict):
-            msg = err_obj.get("message")
-            if isinstance(msg, str) and msg:
-                return msg
-    return "Upstream error"
-
-
 async def _raise_for_upstream_error(upstream: httpx.Response) -> None:
     if upstream.status_code < 400:
         return
@@ -587,7 +578,10 @@ async def _raise_for_upstream_error(upstream: httpx.Response) -> None:
         logger.debug("Failed to read upstream error response", exc_info=True)
         err_body = {"raw": upstream.text}
     await upstream.aclose()
-    err_message = _extract_upstream_error_message(err_body)
+    err_message = extract_upstream_error_message(
+        err_body,
+        status_code=upstream.status_code,
+    )
     raise ChatCompletionError(
         err_message,
         status_code=upstream.status_code,
@@ -602,6 +596,7 @@ async def process_responses_api(
     *,
     client_session_id: str | None = None,
 ) -> tuple[Any, bool]:
+    reject_unsupported_parameters(payload, ("max_output_tokens",))
     requested_model = payload.get("model")
     requested_stream = bool(payload.get("stream", False))
 
@@ -696,7 +691,6 @@ async def process_responses_api(
     for key in (
         "background",
         "conversation",
-        "max_output_tokens",
         "max_tool_calls",
         "metadata",
         "previous_response_id",

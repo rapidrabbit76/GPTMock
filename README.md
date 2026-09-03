@@ -339,9 +339,11 @@ Supported image content types are PNG, JPEG, GIF, and WebP. `detail: "original"`
 | `gpt-5.6-luna` | `none` / `low` / `medium` / `high` / `xhigh` / `max` | ✅ Verified upstream |
 | `gpt-5.4-mini` | `low` / `medium` / `high` / `xhigh` | ✅ Verified upstream |
 
+Direct Docker probes on 2026-09-03 confirmed every listed GPT-5.6 reasoning effort (`none` through `max`) for Sol, Terra, and Luna through `/v1/responses`. All 18 requests completed successfully and returned the requested concrete model name.
+
 > **Fast compatibility aliases:** `*-fast` names are accepted when requested directly and add `service_tier="priority"` to the same verified base-model request. They are not separate models, are not advertised by `/v1/models` or `/api/tags`, and do not guarantee priority service. New integrations should prefer the verified base model plus an explicit `service_tier="priority"` request. GPTMock returns the actual upstream `service_tier` unchanged. All seven compatibility aliases were accepted on 2026-08-26, but every ChatGPT Codex backend probe reported `service_tier="default"`.
 
-> **GPT-5.6 compatibility note:** GPTMock exposes only verified GPT-5.6 model names. `gpt-5.6` follows OpenAI's documented alias to `gpt-5.6-sol`. OpenAI defines Pro as `reasoning.mode="pro"` on the same model rather than as a `*-pro` model ID, so GPTMock passes that request through unchanged. The ChatGPT Codex backend rejected both forms in probes on 2026-08-26; GPTMock therefore advertises no Pro model slug and preserves any upstream rejection instead of downgrading the request.
+> **GPT-5.6 compatibility note:** GPTMock exposes only verified GPT-5.6 model names. `gpt-5.6` follows OpenAI's documented alias to `gpt-5.6-sol`. OpenAI documents Pro as `reasoning.mode="pro"` on the same model rather than as a `*-pro` model ID, but the ChatGPT Codex backend rejected that mode in direct probes. GPTMock therefore advertises no Pro model slug and rejects `reasoning.mode` locally instead of sending a request known to be unsupported by this upstream.
 
 > **Upstream availability note:** model availability can change independently of GPTMock releases. The advertised list reflects direct probes made on 2026-08-26. `gpt-5`, `gpt-5.1`, `gpt-5.2`, `gpt-5-codex`, `gpt-5.1-codex`, `gpt-5.1-codex-mini`, `gpt-5.1-codex-max`, `gpt-5.2-codex`, and `gpt-5.3-codex` were rejected and are therefore not advertised.
 
@@ -358,14 +360,15 @@ Rejected names are omitted from `/v1/models` and `/api/tags`. A client can still
 | `tool_choice: "required"` | Forwarded as required; never weakened to `auto` |
 | Rejected tools or model options | Upstream error is returned; GPTMock does not remove tools and retry |
 | `reasoning.effort` | Validated against the selected model family and forwarded |
-| Explicit `reasoning.mode: "pro"` | Forwarded unchanged; no synthetic Pro model slug is created |
+| Explicit `reasoning.mode` | Rejected locally; the connected ChatGPT Codex backend rejected Pro mode |
+| `max_output_tokens`, `max_completion_tokens`, or `max_tokens` | Rejected locally; GPTMock does not silently discard the requested output limit or send the unsupported translated parameter upstream |
 | `service_tier` or `*-fast` request | Requested tier is sent, while the tier actually returned by upstream is exposed unchanged |
 | `response.incomplete` | Preserved by `/v1/responses`; mapped to `length` or `content_filter` by Chat/Text/Ollama compatibility responses |
 | `response.failed` or interrupted SSE | Returned as an explicit error; an interrupted stream is never converted into a successful completion |
 | Upstream response model | Returned unchanged instead of being replaced with the requested alias |
 | Ollama model metadata | Marked as remote with zero/empty unknown size and digest values; no GGUF, Llama family, parameter size, quantization, or local evaluation timings are fabricated |
 
-The GPT-5.6 alias, reasoning efforts, and Pro-mode request shape follow [OpenAI's GPT-5.6 model guidance](https://developers.openai.com/api/docs/guides/latest-model). GPTMock's advertised list is narrower because it reflects what the ChatGPT Codex backend accepted during the dated probes above, not what may be available through a separate OpenAI API account.
+The GPT-5.6 alias and reasoning-effort range follow [OpenAI's GPT-5.6 model guidance](https://developers.openai.com/api/docs/guides/latest-model). GPTMock's accepted options are narrower because they reflect what the ChatGPT Codex backend accepted during the dated probes above, not what may be available through a separate OpenAI API account.
 
 ---
 

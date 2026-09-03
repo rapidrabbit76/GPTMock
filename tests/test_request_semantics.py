@@ -64,9 +64,8 @@ async def test_chat_request_preserves_roles_tools_and_supported_options(
             },
         ],
         "tool_choice": "required",
-        "max_completion_tokens": 321,
         "service_tier": "priority",
-        "reasoning": {"effort": "max", "mode": "pro"},
+        "reasoning": {"effort": "max"},
     }
     async with httpx.AsyncClient() as client:
         result, is_stream = await chat_module.process_chat_completion(
@@ -81,12 +80,10 @@ async def test_chat_request_preserves_roles_tools_and_supported_options(
     assert [item["role"] for item in captured[0]["input"]] == ["system", "developer", "user"]
     assert captured[0]["tools"][0]["strict"] is True
     assert captured[0]["tool_choice"] == "required"
-    assert captured[0]["max_output_tokens"] == 321
     assert captured[0]["service_tier"] == "priority"
     assert captured[0]["reasoning"] == {
         "effort": "max",
         "summary": "auto",
-        "mode": "pro",
     }
 
 
@@ -132,9 +129,8 @@ async def test_responses_request_preserves_input_options_and_actual_response(
         "tool_choice": "required",
         "previous_response_id": "resp_previous",
         "service_tier": "priority",
-        "max_output_tokens": 123,
         "metadata": {"trace": "semantic-test"},
-        "reasoning": {"effort": "max", "mode": "pro"},
+        "reasoning": {"effort": "max"},
     }
     async with httpx.AsyncClient() as client:
         result, is_stream = await responses_module.process_responses_api(
@@ -147,17 +143,69 @@ async def test_responses_request_preserves_input_options_and_actual_response(
     assert captured[0]["tool_choice"] == "required"
     assert captured[0]["previous_response_id"] == "resp_previous"
     assert captured[0]["service_tier"] == "priority"
-    assert captured[0]["max_output_tokens"] == 123
     assert captured[0]["metadata"] == {"trace": "semantic-test"}
     assert captured[0]["reasoning"] == {
         "effort": "max",
         "summary": "auto",
-        "mode": "pro",
     }
     assert result["model"] == "gpt-5.6-luna"
     assert result["service_tier"] == "default"
     assert result["previous_response_id"] == "resp_previous"
     assert result["reasoning"] == {"effort": "high"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("module_name", "processor_name", "parameter", "base_payload"),
+    [
+        (
+            "gptmock.services.chat",
+            "process_chat_completion",
+            "max_completion_tokens",
+            {"model": "gpt-5.6-sol", "messages": [{"role": "user", "content": "hello"}]},
+        ),
+        (
+            "gptmock.services.chat",
+            "process_chat_completion",
+            "max_tokens",
+            {"model": "gpt-5.6-sol", "messages": [{"role": "user", "content": "hello"}]},
+        ),
+        (
+            "gptmock.services.chat",
+            "process_text_completion",
+            "max_tokens",
+            {"model": "gpt-5.6-sol", "prompt": "hello"},
+        ),
+        (
+            "gptmock.services.responses",
+            "process_responses_api",
+            "max_output_tokens",
+            {"model": "gpt-5.6-sol", "input": "hello"},
+        ),
+    ],
+)
+async def test_output_token_limits_are_rejected_before_upstream(
+    module_name: str,
+    processor_name: str,
+    parameter: str,
+    base_payload: dict[str, Any],
+) -> None:
+    module = importlib.import_module(module_name)
+    processor = getattr(module, processor_name)
+    payload = {**base_payload, parameter: 32}
+
+    async with httpx.AsyncClient() as client:
+        with pytest.raises(module.ChatCompletionError) as exc_info:
+            await processor(payload, Settings(), client)
+
+    error = exc_info.value
+    assert error.status_code == 400
+    assert error.error_data["error"] == {
+        "message": f"Unsupported parameter: {parameter}",
+        "type": "invalid_request_error",
+        "param": parameter,
+        "code": "unsupported_parameter",
+    }
 
 
 @pytest.mark.asyncio

@@ -41,6 +41,7 @@ from gptmock.services.reasoning import (
     extract_reasoning_from_model_name,
 )
 from gptmock.services.upstream import UpstreamError, send_upstream_request
+from gptmock.services.upstream_errors import extract_upstream_error_message
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +87,29 @@ class ChatCompletionError(Exception):
         self.message = message
         self.status_code = status_code
         self.error_data = error_data or {}
+
+
+def reject_unsupported_parameters(
+    payload: dict[str, Any],
+    parameter_names: tuple[str, ...],
+) -> None:
+    """Reject parameters that cannot be honored by the ChatGPT upstream."""
+    for parameter in parameter_names:
+        if parameter not in payload or payload[parameter] is None:
+            continue
+        message = f"Unsupported parameter: {parameter}"
+        raise ChatCompletionError(
+            message,
+            status_code=400,
+            error_data={
+                "error": {
+                    "message": message,
+                    "type": "invalid_request_error",
+                    "param": parameter,
+                    "code": "unsupported_parameter",
+                },
+            },
+        )
 
 
 async def _call_upstream(
@@ -378,12 +402,6 @@ def _build_upstream_request(ctx: ChatCompletionContext) -> None:
 def _chat_upstream_options(payload: dict[str, Any]) -> dict[str, Any]:
     """Map supported Chat Completions options to the upstream Responses request."""
     options: dict[str, Any] = {}
-    max_tokens = payload.get("max_completion_tokens")
-    if max_tokens is None:
-        max_tokens = payload.get("max_tokens")
-    if isinstance(max_tokens, int) and max_tokens > 0:
-        options["max_output_tokens"] = max_tokens
-
     for key in (
         "metadata",
         "previous_response_id",
@@ -464,16 +482,6 @@ async def _read_upstream_error_body(upstream: httpx.Response) -> Any:
         await upstream.aclose()
 
 
-def _extract_upstream_error_message(err_body: Any) -> Any:
-    if isinstance(err_body, dict):
-        error = err_body.get("error")
-        if isinstance(error, dict):
-            message = error.get("message")
-            if isinstance(message, str) and message:
-                return message
-    return "Upstream error"
-
-
 async def _send_upstream(ctx: ChatCompletionContext) -> httpx.Response:
     upstream = await _call_upstream_with_context(
         ctx,
@@ -487,7 +495,10 @@ async def _send_upstream(ctx: ChatCompletionContext) -> httpx.Response:
     err_body = await _read_upstream_error_body(upstream)
     if ctx.settings.verbose:
         logger.debug("Upstream error status=%s", upstream.status_code)
-    message = _extract_upstream_error_message(err_body)
+    message = extract_upstream_error_message(
+        err_body,
+        status_code=upstream.status_code,
+    )
     raise ChatCompletionError(
         message,
         status_code=upstream.status_code,
@@ -809,6 +820,10 @@ async def process_chat_completion(
     is_stream: bool | None = None,
 ) -> tuple[Any, bool]:
     """Process chat completion request."""
+    reject_unsupported_parameters(
+        payload,
+        ("max_completion_tokens", "max_tokens", "max_output_tokens"),
+    )
     ctx = ChatCompletionContext(
         payload=payload,
         settings=settings,
@@ -850,6 +865,10 @@ async def process_text_completion(
     Raises:
         ChatCompletionError: On processing errors
     """
+    reject_unsupported_parameters(
+        payload,
+        ("max_tokens", "max_completion_tokens", "max_output_tokens"),
+    )
     # 1. Extract request parameters
     requested_model = payload.get("model")
     prompt = payload.get("prompt")
@@ -941,7 +960,10 @@ async def process_text_completion(
         except Exception:
             logger.debug("Failed to read upstream error response", exc_info=True)
             err_body = {"raw": getattr(upstream, "text", "unknown error")}
-        message = _extract_upstream_error_message(err_body)
+        message = extract_upstream_error_message(
+            err_body,
+            status_code=upstream.status_code,
+        )
         raise ChatCompletionError(
             message,
             status_code=upstream.status_code,

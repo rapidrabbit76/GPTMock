@@ -71,8 +71,6 @@ def build_reasoning_param(
 
     valid_efforts = allowed_efforts or DEFAULT_REASONING_EFFORTS
     valid_summaries = {"auto", "concise", "detailed", "none"}
-    mode: str | None = None
-
     if isinstance(overrides, dict):
         raw_effort = overrides.get("effort")
         raw_summary = overrides.get("summary")
@@ -89,9 +87,7 @@ def build_reasoning_param(
                 raise ValueError(f"Unsupported reasoning summary: {o_sum}")
             summary = o_sum
         if raw_mode is not None:
-            if o_mode != "pro":
-                raise ValueError(f"Unsupported reasoning mode: {o_mode or raw_mode}")
-            mode = o_mode
+            raise ValueError(f"Unsupported reasoning mode: {o_mode or raw_mode}")
     if effort not in valid_efforts:
         raise ValueError(f"Unsupported reasoning effort: {effort}")
     if summary not in valid_summaries:
@@ -100,8 +96,6 @@ def build_reasoning_param(
     reasoning: dict[str, Any] = {"effort": effort}
     if summary != "none":
         reasoning["summary"] = summary
-    if mode is not None:
-        reasoning["mode"] = mode
     return reasoning
 
 
