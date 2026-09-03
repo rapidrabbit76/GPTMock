@@ -492,6 +492,81 @@ def test_ollama_non_stream_preserves_actual_model_and_tier() -> None:
     assert result["service_tier"] == "default"
 
 
+def test_ollama_request_maps_thinking_tier_and_structured_output() -> None:
+    ollama_module = importlib.import_module("gptmock.routers.ollama")
+    payload = ollama_module._build_openai_payload(
+        {
+            "messages": [{"role": "user", "content": "hello"}],
+            "stream": False,
+            "think": "max",
+            "service_tier": "priority",
+            "format": {"type": "object", "properties": {"answer": {"type": "string"}}},
+        },
+        "gpt-5.6-luna",
+    )
+
+    assert payload["reasoning_effort"] == "max"
+    assert payload["service_tier"] == "priority"
+    assert payload["response_format"] == {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "ollama_response",
+            "strict": True,
+            "schema": {"type": "object", "properties": {"answer": {"type": "string"}}},
+        },
+    }
+
+
+def test_ollama_options_reject_unsupported_runtime_controls() -> None:
+    ollama_module = importlib.import_module("gptmock.routers.ollama")
+    with pytest.raises(ollama_module.ChatCompletionError, match="options.temperature"):
+        ollama_module._ollama_policy_headers(
+            {"options": {"temperature": 0.2}},
+            Settings(),
+        )
+    with pytest.raises(ollama_module.ChatCompletionError, match="must be an object"):
+        ollama_module._ollama_policy_headers(
+            {"options": "temperature=0.2"},
+            Settings(),
+        )
+
+
+def test_ollama_num_predict_uses_output_token_policy() -> None:
+    ollama_module = importlib.import_module("gptmock.routers.ollama")
+    payload = {"options": {"num_predict": 128}}
+
+    assert ollama_module._ollama_policy_headers(payload, Settings()) == {
+        "X-GPTMock-Omitted-Parameters": "options.num_predict",
+    }
+    with pytest.raises(ollama_module.ChatCompletionError, match="options.num_predict"):
+        ollama_module._ollama_policy_headers(
+            payload,
+            Settings(output_token_policy="reject"),
+        )
+
+
+def test_ollama_non_stream_maps_reasoning_to_thinking() -> None:
+    ollama_module = importlib.import_module("gptmock.routers.ollama")
+    result = ollama_module._convert_openai_to_ollama_response(
+        {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": "answer",
+                        "reasoning_content": "analysis",
+                    },
+                    "finish_reason": "stop",
+                },
+            ],
+        },
+        "gpt-5.6-luna",
+    )
+
+    assert result["message"]["thinking"] == "analysis"
+    assert "reasoning_content" not in result["message"]
+
+
 @pytest.mark.asyncio
 async def test_ollama_stream_preserves_incomplete_reason_model_and_tier() -> None:
     ollama_module = importlib.import_module("gptmock.routers.ollama")
@@ -517,6 +592,48 @@ async def test_ollama_stream_preserves_incomplete_reason_model_and_tier() -> Non
     assert frames[-1]["done_reason"] == "length"
     assert frames[-1]["model"] == "gpt-5.6-sol"
     assert frames[-1]["service_tier"] == "default"
+
+
+@pytest.mark.asyncio
+async def test_ollama_stream_reports_missing_terminal_event() -> None:
+    ollama_module = importlib.import_module("gptmock.routers.ollama")
+
+    async def openai_frames():
+        yield b'data: {"choices":[{"delta":{"content":"partial"}}]}\n\n'
+
+    frames = [
+        json.loads(frame)
+        async for frame in ollama_module._convert_openai_to_ollama_stream(
+            openai_frames(),
+            "gpt-5.6-luna",
+        )
+    ]
+
+    assert frames[-1] == {"error": "Upstream stream ended before a terminal event"}
+
+
+def test_ollama_generate_response_uses_native_response_fields() -> None:
+    ollama_module = importlib.import_module("gptmock.routers.ollama")
+    result = ollama_module._convert_openai_to_ollama_generate_response(
+        {
+            "model": "gpt-5.6-luna",
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": "answer",
+                        "reasoning_content": "analysis",
+                    },
+                    "finish_reason": "stop",
+                },
+            ],
+        },
+        "gpt-5.6-luna",
+    )
+
+    assert result["response"] == "answer"
+    assert result["thinking"] == "analysis"
+    assert "message" not in result
 
 
 @pytest.mark.asyncio

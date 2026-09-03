@@ -159,17 +159,23 @@ def _normalize_single_ollama_tool(t: dict[str, Any]) -> dict[str, Any] | None:
         if not name:
             return None
         parameters = fn.get("parameters")
+        normalized_function: dict[str, Any] = {
+            "name": name,
+            "description": fn.get("description") or "",
+            "parameters": (
+                parameters
+                if isinstance(parameters, dict)
+                else {"type": "object", "properties": {}}
+            ),
+        }
+        strict = fn.get("strict")
+        if not isinstance(strict, bool):
+            strict = t.get("strict")
+        if isinstance(strict, bool):
+            normalized_function["strict"] = strict
         return {
             "type": "function",
-            "function": {
-                "name": name,
-                "description": fn.get("description") or "",
-                "parameters": (
-                    parameters
-                    if isinstance(parameters, dict)
-                    else {"type": "object", "properties": {}}
-                ),
-            },
+            "function": normalized_function,
         }
     name = t.get("name") if isinstance(t.get("name"), str) else None
     if name:

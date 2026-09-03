@@ -414,6 +414,14 @@ The default output-token policy is intentionally compatibility-oriented. OpenAI 
 
 Docker-backed OpenCode 1.17.18 probes on 2026-09-03 verified direct Luna/Sol/Terra model selection, `none`/`high`/`max` reasoning variants, `service_tier="priority"` request preservation, streaming, tool definitions, `tool_choice="auto"`, and a complete function-call/result/final-answer loop. The upstream response still reported the actual tier as `default`. OpenCode did not emit configured `top_p`, `tool_choice="required"`, or strict tool schemas in these runs, so those semantics remain covered by GPTMock's direct request tests rather than claimed as OpenCode-verified.
 
+### Ollama Request Semantics
+
+GPTMock supports both `/api/chat` and `/api/generate`. The native Ollama `think` field maps string levels to reasoning effort; GPTMock additionally accepts the full model-specific effort range (`none` through `max`) and the explicit `reasoning_effort` field. `think: false` suppresses the returned thinking summary. The non-standard `service_tier: "priority"` field requests priority service, while the actual upstream tier remains authoritative. Ollama `format: "json"` and JSON-schema objects map to structured output.
+
+`options.num_predict` cannot be enforced by the ChatGPT Codex backend, so it follows `GPTMOCK_OUTPUT_TOKEN_POLICY`: default `omit` mode returns `X-GPTMock-Omitted-Parameters: options.num_predict`, while `reject` mode returns HTTP 400. Other non-empty Ollama runtime `options` are rejected instead of being silently ignored. Generate-only `suffix`, non-empty `template`, `context`, and `raw: true` are also rejected because this upstream cannot preserve their meaning.
+
+Docker probes on 2026-09-03 verified authenticated raw HTTP requests for tags, show, structured output, reasoning, priority tier requests, streaming, strict required tools, tool-result continuation, output-limit policy, and upstream errors. Ollama CLI 0.33.1 also completed `ollama show` and a streaming `ollama run` through the loopback-only unauthenticated container. Two CLI limitations remain explicit: the CLI did not send `OLLAMA_API_KEY` to a custom local host, and `ollama list` panicked when it encountered the intentionally empty remote-model digest. GPTMock will not fabricate a weight digest to satisfy that client assumption; use `/api/tags`, `ollama show <model>`, or an Ollama-compatible client that accepts remote metadata.
+
 ---
 
 ## API Endpoints
@@ -426,6 +434,7 @@ Docker-backed OpenCode 1.17.18 probes on 2026-09-03 verified direct Luna/Sol/Ter
 | GET | `/v1/models` | List available models |
 | GET | `/api/version` | Ollama-compatible version info |
 | POST | `/api/chat` | Ollama-compatible chat |
+| POST | `/api/generate` | Ollama-compatible text generation |
 | POST | `/api/show` | Ollama-compatible model details |
 | GET | `/api/tags` | Ollama model list |
 | GET | `/health` | Health check |
@@ -441,7 +450,7 @@ Docker-backed OpenCode 1.17.18 probes on 2026-09-03 verified direct Luna/Sol/Ter
 - **Local Image Inspection** — Codex-compatible `view_image` function tool for allowed local image paths
 - **Thinking Summaries** — `<think>` tags, `o3` reasoning format, or legacy mode
 - **Responses API** — `POST /v1/responses` for LangChain and other clients that auto-route codex models
-- **Ollama Compatibility** — remote-model metadata without fabricated GGUF sizes, digests, or local evaluation timings
+- **Ollama Compatibility** — chat and generate APIs with remote-model metadata, without fabricated GGUF sizes, digests, or local evaluation timings
 - **Auto Token Refresh** — JWT tokens are refreshed automatically before expiry
 
 ---

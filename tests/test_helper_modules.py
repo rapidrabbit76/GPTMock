@@ -599,6 +599,10 @@ class TestOllamaTransforms:
             {"type": "function", "function": {"name": "ping", "description": "p", "parameters": {"type": "object", "properties": {}}}},
         ]
 
+    def test_normalize_ollama_tools_preserves_strict_mode(self) -> None:
+        tools = [{"type": "function", "function": {"name": "lookup", "strict": True}}]
+        assert normalize_ollama_tools(tools)[0]["function"]["strict"] is True
+
 
 class TestSSEHelpers:
     def _ctx(self, compat: str = "think-tags", *, include_usage: bool = False) -> SSEChatContext:

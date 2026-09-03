@@ -17,6 +17,7 @@ from gptmock.core.settings import Settings
 from gptmock.schemas.requests import (
     ChatCompletionRequest,
     OllamaChatRequest,
+    OllamaGenerateRequest,
     OllamaShowRequest,
     ResponsesCreateRequest,
     TextCompletionRequest,
@@ -71,6 +72,10 @@ class TestAppBootstrap:
         assert resp.status_code == 200
         assert resp.json() == {"status": "ok"}
 
+    def test_root_head_supports_ollama_cli_probe(self, client: TestClient) -> None:
+        resp = client.head("/")
+        assert resp.status_code == 200
+
     def test_models_endpoint(self, client: TestClient) -> None:
         resp = client.get("/v1/models")
         assert resp.status_code == 200
@@ -110,6 +115,18 @@ class TestAppBootstrap:
         assert data["details"]["format"] == "remote"
         assert data["model_info"]["gptmock.remote"] is True
 
+    def test_ollama_show_accepts_hidden_fast_alias(self, client: TestClient) -> None:
+        resp = client.post("/api/show", json={"model": "gpt-5.6-luna-fast"})
+        assert resp.status_code == 200
+        model_info = resp.json()["model_info"]
+        assert model_info["gptmock.upstream_model"] == "gpt-5.6-luna"
+        assert model_info["gptmock.request_overrides"] == {"service_tier": "priority"}
+
+    def test_ollama_show_accepts_cli_name_field(self, client: TestClient) -> None:
+        resp = client.post("/api/show", json={"name": "gpt-5.6-luna"})
+        assert resp.status_code == 200
+        assert resp.json()["model_info"]["gptmock.upstream_model"] == "gpt-5.6-luna"
+
     def test_ollama_show_unknown_model(self, client: TestClient) -> None:
         resp = client.post("/api/show", json={"model": "definitely-not-a-model"})
         assert resp.status_code == 404
@@ -122,6 +139,23 @@ class TestAppBootstrap:
         """POST /api/show with empty string model returns 400."""
         resp = client.post("/api/show", json={"model": ""})
         assert resp.status_code == 400
+
+    def test_ollama_chat_rejects_unsupported_options_as_client_error(
+        self, client: TestClient,
+    ) -> None:
+        resp = client.post(
+            "/api/chat",
+            json={
+                "model": "gpt-5.6-luna",
+                "messages": [{"role": "user", "content": "hello"}],
+                "stream": False,
+                "options": {"temperature": 0.2},
+            },
+        )
+        assert resp.status_code == 400
+        assert resp.json() == {
+            "error": "Unsupported Ollama option(s): options.temperature",
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -161,6 +195,19 @@ class TestPydanticRequestModels:
         dump = req.model_dump()
         assert dump["temperature"] == 0.7
         assert dump["response_format"] == {"type": "json_object"}
+
+    def test_ollama_generate_request_preserves_native_fields(self) -> None:
+        req = OllamaGenerateRequest(
+            model="gpt-5.6-luna",
+            prompt="hello",
+            think="high",
+            options={"num_predict": 128},
+        )
+        assert req.prompt == "hello"
+        assert req.model_extra == {
+            "think": "high",
+            "options": {"num_predict": 128},
+        }
 
     def test_chat_completion_missing_model_rejects(self) -> None:
         with pytest.raises(Exception):  # noqa: B017
