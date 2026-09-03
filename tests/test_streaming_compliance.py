@@ -103,6 +103,47 @@ async def _non_stream_json(
     return response.json()
 
 
+@pytest.mark.asyncio
+async def test_output_token_omission_is_exposed_on_streaming_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events = [
+        {"type": "response.completed", "response": {"id": "resp_omit"}},
+    ]
+    captured: list[dict[str, Any]] = []
+    async for client in _make_client(monkeypatch, events, captured_payloads=captured):
+        async with client.stream(
+            "POST",
+            "/v1/chat/completions",
+            json=_base_payload(stream=True, max_tokens=256),
+        ) as response:
+            assert response.status_code == 200
+            assert response.headers["x-gptmock-omitted-parameters"] == "max_tokens"
+            await response.aread()
+
+    assert captured
+    assert "max_tokens" not in captured[0]
+
+
+@pytest.mark.asyncio
+async def test_output_token_reject_policy_returns_no_omission_header(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events = [
+        {"type": "response.completed", "response": {"id": "unused"}},
+    ]
+    settings = Settings(output_token_policy="reject")
+    async for client in _make_client(monkeypatch, events, settings=settings):
+        response = await client.post(
+            "/v1/chat/completions",
+            json=_base_payload(max_completion_tokens=256),
+        )
+
+    assert response.status_code == 400
+    assert "x-gptmock-omitted-parameters" not in response.headers
+    assert response.json()["error"]["param"] == "max_completion_tokens"
+
+
 def _base_payload(**extra: Any) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "model": "gpt-5",

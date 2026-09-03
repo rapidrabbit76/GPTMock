@@ -24,7 +24,7 @@ from gptmock.core.logging import log_json
 from gptmock.core.settings import Settings
 from gptmock.infra.auth import get_effective_chatgpt_auth
 from gptmock.infra.session import ensure_session_id
-from gptmock.services.chat import ChatCompletionError, reject_unsupported_parameters
+from gptmock.services.chat import ChatCompletionError, apply_output_token_policy
 from gptmock.services.model_registry import (
     apply_model_overrides,
     get_instructions_for_model,
@@ -596,7 +596,12 @@ async def process_responses_api(
     *,
     client_session_id: str | None = None,
 ) -> tuple[Any, bool]:
-    reject_unsupported_parameters(payload, ("max_output_tokens",))
+    apply_output_token_policy(
+        payload,
+        settings,
+        ("max_output_tokens",),
+        event_logger=logger,
+    )
     requested_model = payload.get("model")
     requested_stream = bool(payload.get("stream", False))
 

@@ -89,14 +89,32 @@ class ChatCompletionError(Exception):
         self.error_data = error_data or {}
 
 
-def reject_unsupported_parameters(
+def supplied_parameters(
     payload: dict[str, Any],
     parameter_names: tuple[str, ...],
-) -> None:
-    """Reject parameters that cannot be honored by the ChatGPT upstream."""
-    for parameter in parameter_names:
-        if parameter not in payload or payload[parameter] is None:
-            continue
+) -> tuple[str, ...]:
+    """Return explicitly supplied, non-null parameter names in stable order."""
+    return tuple(
+        parameter
+        for parameter in parameter_names
+        if parameter in payload and payload[parameter] is not None
+    )
+
+
+def apply_output_token_policy(
+    payload: dict[str, Any],
+    settings: Settings,
+    parameter_names: tuple[str, ...],
+    *,
+    event_logger: logging.Logger | None = None,
+) -> tuple[str, ...]:
+    """Apply the configured policy for limits unsupported by ChatGPT upstream."""
+    supplied = supplied_parameters(payload, parameter_names)
+    if not supplied:
+        return ()
+
+    if settings.output_token_policy == "reject":
+        parameter = supplied[0]
         message = f"Unsupported parameter: {parameter}"
         raise ChatCompletionError(
             message,
@@ -110,6 +128,12 @@ def reject_unsupported_parameters(
                 },
             },
         )
+
+    (event_logger or logger).warning(
+        "Ignoring output token limit(s) unsupported by ChatGPT upstream: %s",
+        ", ".join(supplied),
+    )
+    return supplied
 
 
 async def _call_upstream(
@@ -279,11 +303,7 @@ def _derive_policies(ctx: ChatCompletionContext) -> None:
     settings = ctx.settings
 
     model_reasoning = extract_reasoning_from_model_name(ctx.requested_model)
-    reasoning_overrides = (
-        payload.get("reasoning")
-        if isinstance(payload.get("reasoning"), dict)
-        else model_reasoning
-    )
+    reasoning_overrides = _chat_reasoning_overrides(payload, model_reasoning)
     try:
         ctx.reasoning_param = build_reasoning_param(
             settings.reasoning_effort,
@@ -413,6 +433,53 @@ def _chat_upstream_options(payload: dict[str, Any]) -> dict[str, Any]:
         if key in payload and payload[key] is not None:
             options[key] = payload[key]
     return options
+
+
+def _chat_reasoning_overrides(
+    payload: dict[str, Any],
+    model_reasoning: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Normalize Chat Completions reasoning fields without hiding conflicts."""
+    reasoning = payload.get("reasoning")
+    explicit_reasoning = isinstance(reasoning, dict)
+    overrides = dict(reasoning) if explicit_reasoning else {}
+
+    effort = payload.get("reasoning_effort")
+    if effort is None:
+        if overrides:
+            return overrides
+        return dict(model_reasoning) if isinstance(model_reasoning, dict) else None
+    if not isinstance(effort, str):
+        raise ChatCompletionError(
+            "reasoning_effort must be a string",
+            status_code=400,
+            error_data={
+                "error": {
+                    "message": "reasoning_effort must be a string",
+                    "type": "invalid_request_error",
+                    "param": "reasoning_effort",
+                    "code": "invalid_parameter",
+                },
+            },
+        )
+
+    nested_effort = overrides.get("effort") if explicit_reasoning else None
+    if nested_effort is not None and nested_effort != effort:
+        message = "Conflicting reasoning effort values"
+        raise ChatCompletionError(
+            message,
+            status_code=400,
+            error_data={
+                "error": {
+                    "message": message,
+                    "type": "invalid_request_error",
+                    "param": "reasoning_effort",
+                    "code": "conflicting_parameters",
+                },
+            },
+        )
+    overrides["effort"] = effort
+    return overrides
 
 
 async def _authenticate(ctx: ChatCompletionContext) -> None:
@@ -820,8 +887,9 @@ async def process_chat_completion(
     is_stream: bool | None = None,
 ) -> tuple[Any, bool]:
     """Process chat completion request."""
-    reject_unsupported_parameters(
+    apply_output_token_policy(
         payload,
+        settings,
         ("max_completion_tokens", "max_tokens", "max_output_tokens"),
     )
     ctx = ChatCompletionContext(
@@ -865,8 +933,9 @@ async def process_text_completion(
     Raises:
         ChatCompletionError: On processing errors
     """
-    reject_unsupported_parameters(
+    apply_output_token_policy(
         payload,
+        settings,
         ("max_tokens", "max_completion_tokens", "max_output_tokens"),
     )
     # 1. Extract request parameters
@@ -894,11 +963,7 @@ async def process_text_completion(
 
     # 4. Build reasoning parameters
     model_reasoning = extract_reasoning_from_model_name(requested_model)
-    reasoning_overrides = (
-        payload.get("reasoning")
-        if isinstance(payload.get("reasoning"), dict)
-        else model_reasoning
-    )
+    reasoning_overrides = _chat_reasoning_overrides(payload, model_reasoning)
     try:
         reasoning_param = build_reasoning_param(
             settings.reasoning_effort,

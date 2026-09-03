@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hmac
+import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -36,6 +37,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     if settings is None:
         from gptmock.core.dependencies import get_settings
         settings = get_settings()
+
+    package_logger = logging.getLogger("gptmock")
+    package_logger.setLevel(
+        logging.DEBUG if settings.verbose else logging.WARNING,
+    )
+    if settings.verbose and not any(
+        getattr(handler, "_gptmock_verbose_handler", False)
+        for handler in package_logger.handlers
+    ):
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("%(levelname)s:%(name)s:%(message)s"))
+        handler._gptmock_verbose_handler = True  # type: ignore[attr-defined]
+        package_logger.addHandler(handler)
 
     # Create FastAPI app with lifespan
     app = FastAPI(

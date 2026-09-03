@@ -491,6 +491,7 @@ def cmd_serve(
     debug_model: str | None,
     expose_reasoning_models: bool,
     default_web_search: bool,
+    output_token_policy: str,
     cors_origins: str,
 ) -> int:
     auth = read_auth_file()
@@ -518,6 +519,7 @@ def cmd_serve(
         os.environ["GPTMOCK_EXPOSE_REASONING_MODELS"] = "true"
     if default_web_search:
         os.environ["GPTMOCK_DEFAULT_WEB_SEARCH"] = "true"
+    os.environ["GPTMOCK_OUTPUT_TOKEN_POLICY"] = output_token_policy
     if cors_origins:
         os.environ["GPTMOCK_CORS_ORIGINS"] = cors_origins
 
@@ -531,7 +533,7 @@ def cmd_serve(
         factory=True,
         host=host,
         port=port,
-        log_level="info" if verbose else "warning",
+        log_level="debug" if verbose else "warning",
     )
     return 0
 
@@ -641,6 +643,17 @@ def main() -> None:
         ),
     )
     p_serve.add_argument(
+        "--output-token-policy",
+        choices=["omit", "reject"],
+        default=(
+            _env_with_legacy("GPTMOCK_OUTPUT_TOKEN_POLICY") or "omit"
+        ).lower(),
+        help=(
+            "How to handle client output token limits that ChatGPT upstream cannot honor: "
+            "omit (default, with warning/header) or reject."
+        ),
+    )
+    p_serve.add_argument(
         "--cors-origins",
         default=_env_with_legacy("GPTMOCK_CORS_ORIGINS", default=""),
         help=(
@@ -673,6 +686,7 @@ def main() -> None:
                 debug_model=args.debug_model,
                 expose_reasoning_models=args.expose_reasoning_models,
                 default_web_search=args.enable_web_search,
+                output_token_policy=args.output_token_policy,
                 cors_origins=args.cors_origins,
             ),
         )

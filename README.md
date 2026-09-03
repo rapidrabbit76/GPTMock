@@ -97,6 +97,7 @@ Additional Docker-specific variables:
 | `GPTMOCK_HOME` | `/data` | Auth file directory — mount a volume here |
 | `GPTMOCK_LOGIN_BIND` | `0.0.0.0` | OAuth callback server bind address |
 | `GPTMOCK_API_KEY` | unset | Optional Bearer token required by `/v1/*` and `/api/*` routes |
+| `GPTMOCK_OUTPUT_TOKEN_POLICY` | `omit` | Handle unenforceable client output limits: `omit` with warning/header or `reject` with HTTP 400 |
 | `GPTMOCK_OLLAMA_VERSION` | `0.12.10` | Ollama API compatibility header version |
 
 The published ports bind to host loopback by default. If you expose them on a LAN, configure `GPTMOCK_API_KEY` and an explicit `GPTMOCK_CORS_ORIGINS` allowlist first.
@@ -161,6 +162,45 @@ gptmock info
 ---
 
 ## Usage Examples
+
+### OpenCode
+
+Use OpenCode's Responses provider, not its Chat Completions compatibility provider. OpenCode 1.x configuration:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "gptmock": {
+      "npm": "@ai-sdk/openai",
+      "name": "GPTMock",
+      "options": {
+        "baseURL": "http://127.0.0.1:8000/v1",
+        "apiKey": "replace-with-your-GPTMOCK_API_KEY"
+      },
+      "models": {
+        "gpt-5.6-luna": {
+          "name": "GPT-5.6 Luna",
+          "reasoning": true,
+          "tool_call": true,
+          "variants": {
+            "none": { "reasoningEffort": "none" },
+            "low": { "reasoningEffort": "low" },
+            "medium": { "reasoningEffort": "medium" },
+            "high": { "reasoningEffort": "high" },
+            "xhigh": { "reasoningEffort": "xhigh" },
+            "max": { "reasoningEffort": "max" }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+Select `gptmock/gpt-5.6-luna` and the desired variant. OpenCode automatically sends `max_output_tokens`; GPTMock's default `omit` policy keeps the request compatible while explicitly reporting that the limit was not enforced.
+
+Do not use `@ai-sdk/openai-compatible` for OpenCode with this backend. That adapter calls `/v1/chat/completions` and sends OpenCode's system prompt as a `system` message. GPTMock preserves the role as requested, and the connected ChatGPT Codex backend currently rejects it with `System messages are not allowed`. The Responses adapter sends the prompt as `instructions` and was verified end to end.
 
 ### Python (OpenAI SDK)
 
@@ -359,9 +399,9 @@ Rejected names are omitted from `/v1/models` and `/api/tags`. A client can still
 | Function tools with `strict: true` | Strict schema flag and parameters are preserved |
 | `tool_choice: "required"` | Forwarded as required; never weakened to `auto` |
 | Rejected tools or model options | Upstream error is returned; GPTMock does not remove tools and retry |
-| `reasoning.effort` | Validated against the selected model family and forwarded |
+| `reasoning.effort` or Chat `reasoning_effort` | Validated against the selected model family and forwarded; conflicting values are rejected |
 | Explicit `reasoning.mode` | Rejected locally; the connected ChatGPT Codex backend rejected Pro mode |
-| `max_output_tokens`, `max_completion_tokens`, or `max_tokens` | Rejected locally; GPTMock does not silently discard the requested output limit or send the unsupported translated parameter upstream |
+| `max_output_tokens`, `max_completion_tokens`, or `max_tokens` | Not forwarded because the ChatGPT Codex upstream cannot enforce them. Default `omit` mode logs a warning and returns `X-GPTMock-Omitted-Parameters`; `reject` mode returns HTTP 400 |
 | `service_tier` or `*-fast` request | Requested tier is sent, while the tier actually returned by upstream is exposed unchanged |
 | `response.incomplete` | Preserved by `/v1/responses`; mapped to `length` or `content_filter` by Chat/Text/Ollama compatibility responses |
 | `response.failed` or interrupted SSE | Returned as an explicit error; an interrupted stream is never converted into a successful completion |
@@ -369,6 +409,10 @@ Rejected names are omitted from `/v1/models` and `/api/tags`. A client can still
 | Ollama model metadata | Marked as remote with zero/empty unknown size and digest values; no GGUF, Llama family, parameter size, quantization, or local evaluation timings are fabricated |
 
 The GPT-5.6 alias and reasoning-effort range follow [OpenAI's GPT-5.6 model guidance](https://developers.openai.com/api/docs/guides/latest-model). GPTMock's accepted options are narrower because they reflect what the ChatGPT Codex backend accepted during the dated probes above, not what may be available through a separate OpenAI API account.
+
+The default output-token policy is intentionally compatibility-oriented. OpenAI SDKs and agent frontends commonly add an output-token field even when the user did not set one. GPTMock accepts such requests but does not claim that the limit was honored: the field is omitted only from the upstream request, a warning names the omitted field, and the HTTP response exposes the same fact. Use `--output-token-policy reject` when failing closed is preferable to frontend compatibility.
+
+Docker-backed OpenCode 1.17.18 probes on 2026-09-03 verified direct Luna/Sol/Terra model selection, `none`/`high`/`max` reasoning variants, `service_tier="priority"` request preservation, streaming, tool definitions, `tool_choice="auto"`, and a complete function-call/result/final-answer loop. The upstream response still reported the actual tier as `default`. OpenCode did not emit configured `top_p`, `tool_choice="required"`, or strict tool schemas in these runs, so those semantics remain covered by GPTMock's direct request tests rather than claimed as OpenCode-verified.
 
 ---
 
@@ -422,6 +466,7 @@ Each option can also be set via environment variable. Precedence: **CLI flag > `
 | `--reasoning-compat` | `GPTMOCK_REASONING_COMPAT` | `standard` | How reasoning is exposed: `standard` / `think-tags` / `o3` / `legacy` (`openai` is accepted as an alias for `standard`, `current` as an alias for `legacy`) |
 | `--expose-reasoning-models` | `GPTMOCK_EXPOSE_REASONING_MODELS` | off | Show effort variants as separate models in `/v1/models` |
 | `--enable-web-search` | `GPTMOCK_DEFAULT_WEB_SEARCH` | off | Enable web search by default when `responses_tools` is omitted |
+| `--output-token-policy` | `GPTMOCK_OUTPUT_TOKEN_POLICY` | `omit` | `omit` unenforceable output limits with warning/header, or `reject` them with HTTP 400 |
 | `--cors-origins` | `GPTMOCK_CORS_ORIGINS` | disabled | Comma-separated allowed CORS origins |
 | — | `GPTMOCK_API_KEY` | unset | Optional Bearer token for `/v1/*` and `/api/*`; strongly recommended before non-loopback exposure |
 

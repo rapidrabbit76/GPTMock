@@ -65,7 +65,7 @@ async def test_chat_request_preserves_roles_tools_and_supported_options(
         ],
         "tool_choice": "required",
         "service_tier": "priority",
-        "reasoning": {"effort": "max"},
+        "reasoning_effort": "max",
     }
     async with httpx.AsyncClient() as client:
         result, is_stream = await chat_module.process_chat_completion(
@@ -85,6 +85,33 @@ async def test_chat_request_preserves_roles_tools_and_supported_options(
         "effort": "max",
         "summary": "auto",
     }
+
+
+@pytest.mark.asyncio
+async def test_conflicting_chat_reasoning_fields_are_rejected() -> None:
+    chat_module = importlib.import_module("gptmock.services.chat")
+    payload = {
+        "model": "gpt-5.6-sol",
+        "messages": [{"role": "user", "content": "hello"}],
+        "reasoning": {"effort": "low"},
+        "reasoning_effort": "high",
+    }
+
+    async with httpx.AsyncClient() as client:
+        with pytest.raises(chat_module.ChatCompletionError) as exc_info:
+            await chat_module.process_chat_completion(payload, Settings(), client)
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.error_data["error"]["code"] == "conflicting_parameters"
+
+
+def test_chat_reasoning_effort_overrides_synthetic_model_suffix() -> None:
+    chat_module = importlib.import_module("gptmock.services.chat")
+    result = chat_module._chat_reasoning_overrides(
+        {"reasoning_effort": "low"},
+        {"effort": "high"},
+    )
+    assert result == {"effort": "low"}
 
 
 @pytest.mark.asyncio
@@ -184,7 +211,7 @@ async def test_responses_request_preserves_input_options_and_actual_response(
         ),
     ],
 )
-async def test_output_token_limits_are_rejected_before_upstream(
+async def test_output_token_limits_are_rejected_in_strict_policy(
     module_name: str,
     processor_name: str,
     parameter: str,
@@ -196,7 +223,7 @@ async def test_output_token_limits_are_rejected_before_upstream(
 
     async with httpx.AsyncClient() as client:
         with pytest.raises(module.ChatCompletionError) as exc_info:
-            await processor(payload, Settings(), client)
+            await processor(payload, Settings(output_token_policy="reject"), client)
 
     error = exc_info.value
     assert error.status_code == 400
@@ -206,6 +233,75 @@ async def test_output_token_limits_are_rejected_before_upstream(
         "param": parameter,
         "code": "unsupported_parameter",
     }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("module_name", "processor_name", "parameter", "base_payload"),
+    [
+        (
+            "gptmock.services.chat",
+            "process_chat_completion",
+            "max_completion_tokens",
+            {"model": "gpt-5.6-sol", "messages": [{"role": "user", "content": "hello"}]},
+        ),
+        (
+            "gptmock.services.chat",
+            "process_chat_completion",
+            "max_tokens",
+            {"model": "gpt-5.6-sol", "messages": [{"role": "user", "content": "hello"}]},
+        ),
+        (
+            "gptmock.services.chat",
+            "process_text_completion",
+            "max_tokens",
+            {"model": "gpt-5.6-sol", "prompt": "hello"},
+        ),
+        (
+            "gptmock.services.responses",
+            "process_responses_api",
+            "max_output_tokens",
+            {"model": "gpt-5.6-sol", "input": "hello"},
+        ),
+    ],
+)
+async def test_output_token_limits_are_omitted_before_upstream_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    module_name: str,
+    processor_name: str,
+    parameter: str,
+    base_payload: dict[str, Any],
+) -> None:
+    module = importlib.import_module(module_name)
+    processor = getattr(module, processor_name)
+    captured: list[dict[str, Any]] = []
+
+    async def fake_auth() -> tuple[str, str]:
+        return "token", "account"
+
+    async def fake_send(payload: dict[str, Any], *args: Any, **kwargs: Any) -> httpx.Response:
+        del args, kwargs
+        captured.append(payload)
+        return _completed_response(
+            {
+                "id": "resp_omit",
+                "status": "completed",
+                "model": "gpt-5.6-sol",
+                "output": [],
+            },
+        )
+
+    monkeypatch.setattr(module, "get_effective_chatgpt_auth", fake_auth)
+    monkeypatch.setattr(module, "send_upstream_request", fake_send)
+
+    with caplog.at_level("WARNING"):
+        async with httpx.AsyncClient() as client:
+            await processor({**base_payload, parameter: 32}, Settings(), client)
+
+    assert captured
+    assert parameter not in captured[0]
+    assert parameter in caplog.text
 
 
 @pytest.mark.asyncio

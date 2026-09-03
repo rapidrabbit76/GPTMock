@@ -7,6 +7,8 @@ parse/reject correctly, and the model registry returns expected data.
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 from starlette.testclient import TestClient
 
@@ -30,6 +32,22 @@ from gptmock.services.model_registry import (
 # ---------------------------------------------------------------------------
 # App bootstrap
 # ---------------------------------------------------------------------------
+
+
+def test_verbose_settings_enable_package_debug_logging() -> None:
+    package_logger = logging.getLogger("gptmock")
+    original_level = package_logger.level
+    original_handlers = list(package_logger.handlers)
+    try:
+        create_app(Settings(verbose=True))
+        assert package_logger.level == logging.DEBUG
+        assert any(
+            getattr(handler, "_gptmock_verbose_handler", False)
+            for handler in package_logger.handlers
+        )
+    finally:
+        package_logger.setLevel(original_level)
+        package_logger.handlers[:] = original_handlers
 
 
 @pytest.fixture(scope="module")

@@ -6,6 +6,7 @@ x-gptmock-common: &gptmock-common
   environment:
     - GPTMOCK_HOME=/data
     - GPTMOCK_LOGIN_BIND=0.0.0.0
+    - GPTMOCK_OUTPUT_TOKEN_POLICY=${GPTMOCK_OUTPUT_TOKEN_POLICY:-omit}
   env_file:
     - path: .env
       required: false
