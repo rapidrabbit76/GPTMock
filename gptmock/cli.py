@@ -4,12 +4,14 @@ import argparse
 import errno
 import json
 import os
+import secrets
 import sys
 import webbrowser
 from datetime import UTC, datetime
 
 from gptmock.core.constants import CLIENT_ID_DEFAULT
-from gptmock.infra.auth import eprint, get_home_dir, parse_jwt_claims, read_auth_file
+from gptmock.core.settings import Settings
+from gptmock.infra.auth import eprint, get_home_dir, parse_jwt_claims, read_auth_file, validate_auth_storage
 from gptmock.infra.limits import (
     RateLimitWindow,
     compute_reset_at,
@@ -38,8 +40,8 @@ def _env_with_legacy(
     return default
 
 
-def _env_truthy(name: str, legacy_name: str | None = None) -> bool:
-    return (_env_with_legacy(name, legacy_name) or "").strip().lower() in (
+def _env_truthy(name: str, legacy_name: str | None = None, default: bool = False) -> bool:
+    return (_env_with_legacy(name, legacy_name, str(default)) or "").strip().lower() in (
         "1",
         "true",
         "yes",
@@ -399,6 +401,8 @@ def cmd_info(auth: dict[str, object] | None) -> int:
 
 
 def cmd_login(no_browser: bool, verbose: bool) -> int:
+    if not _check_auth_storage():
+        return 1
     home_dir = get_home_dir()
     client_id = CLIENT_ID_DEFAULT
 
@@ -450,8 +454,8 @@ def cmd_login(no_browser: bool, verbose: bool) -> int:
                     if not code:
                         eprint("Input did not contain an auth code. Ignoring.")
                         return
-                    if state and state != httpd.state:
-                        eprint("State mismatch. Ignoring pasted URL for safety.")
+                    if not state or not secrets.compare_digest(state, httpd.state):
+                        eprint("Missing or mismatched OAuth state. Ignoring pasted URL for safety.")
                         return
                     eprint("Received redirect URL. Completing login without callback…")
                     bundle, _ = httpd.exchange_code(code)
@@ -479,6 +483,15 @@ def cmd_login(no_browser: bool, verbose: bool) -> int:
         return httpd.exit_code
 
 
+def _check_auth_storage() -> bool:
+    try:
+        validate_auth_storage()
+    except OSError:
+        eprint("Credential storage is not readable/writable. For Docker bind mounts, migrate ownership to UID/GID 10001:10001; see README's existing-volume migration instructions.")
+        return False
+    return True
+
+
 def cmd_serve(
     host: str,
     port: int,
@@ -490,8 +503,11 @@ def cmd_serve(
     debug_model: str | None,
     expose_reasoning_models: bool,
     default_web_search: bool,
+    output_token_policy: str,
     cors_origins: str,
 ) -> int:
+    if not _check_auth_storage():
+        return 1
     auth = read_auth_file()
     if not isinstance(auth, dict) or not auth.get("tokens"):
         eprint("No credentials found. Starting login flow...")
@@ -501,10 +517,8 @@ def cmd_serve(
             return login_result
         eprint("Login successful. Starting server...\n")
 
-    if verbose:
-        os.environ["GPTMOCK_VERBOSE"] = "true"
-    if verbose_obfuscation:
-        os.environ["GPTMOCK_VERBOSE_OBFUSCATION"] = "true"
+    os.environ["GPTMOCK_VERBOSE"] = str(verbose).lower()
+    os.environ["GPTMOCK_VERBOSE_OBFUSCATION"] = str(verbose_obfuscation).lower()
     if reasoning_effort:
         os.environ["GPTMOCK_REASONING_EFFORT"] = reasoning_effort
     if reasoning_summary:
@@ -513,12 +527,10 @@ def cmd_serve(
         os.environ["GPTMOCK_REASONING_COMPAT"] = reasoning_compat
     if debug_model:
         os.environ["GPTMOCK_DEBUG_MODEL"] = debug_model
-    if expose_reasoning_models:
-        os.environ["GPTMOCK_EXPOSE_REASONING_MODELS"] = "true"
-    if default_web_search:
-        os.environ["GPTMOCK_DEFAULT_WEB_SEARCH"] = "true"
-    if cors_origins:
-        os.environ["GPTMOCK_CORS_ORIGINS"] = cors_origins
+    os.environ["GPTMOCK_EXPOSE_REASONING_MODELS"] = str(expose_reasoning_models).lower()
+    os.environ["GPTMOCK_DEFAULT_WEB_SEARCH"] = str(default_web_search).lower()
+    os.environ["GPTMOCK_OUTPUT_TOKEN_POLICY"] = output_token_policy
+    os.environ["GPTMOCK_CORS_ORIGINS"] = cors_origins
 
     os.environ["GPTMOCK_HOST"] = host
     os.environ["GPTMOCK_PORT"] = str(port)
@@ -530,12 +542,13 @@ def cmd_serve(
         factory=True,
         host=host,
         port=port,
-        log_level="info" if verbose else "warning",
+        log_level="debug" if verbose else "warning",
     )
     return 0
 
 
 def main() -> None:
+    defaults = Settings()
     parser = argparse.ArgumentParser(
         description="ChatGPT Local: login & OpenAI-compatible proxy",
     )
@@ -554,39 +567,39 @@ def main() -> None:
     p_serve = sub.add_parser("serve", help="Run local OpenAI-compatible server")
     p_serve.add_argument(
         "--host",
-        default=_env_with_legacy("GPTMOCK_HOST", default="127.0.0.1"),
+        default=_env_with_legacy("GPTMOCK_HOST", default=defaults.host),
     )
     p_serve.add_argument(
         "--port",
         type=int,
-        default=_env_int("GPTMOCK_PORT", 8000),
+        default=_env_int("GPTMOCK_PORT", defaults.port),
     )
     p_serve.add_argument(
         "--verbose",
-        action="store_true",
-        default=_env_truthy("GPTMOCK_VERBOSE", "CHATGPT_LOCAL_VERBOSE"),
+        action=argparse.BooleanOptionalAction,
+        default=_env_truthy("GPTMOCK_VERBOSE", "CHATGPT_LOCAL_VERBOSE", defaults.verbose),
         help="Enable verbose logging",
     )
     p_serve.add_argument(
         "--verbose-obfuscation",
-        action="store_true",
-        default=_env_truthy("GPTMOCK_VERBOSE_OBFUSCATION", "CHATGPT_LOCAL_VERBOSE_OBFUSCATION"),
+        action=argparse.BooleanOptionalAction,
+        default=_env_truthy("GPTMOCK_VERBOSE_OBFUSCATION", "CHATGPT_LOCAL_VERBOSE_OBFUSCATION", defaults.verbose_obfuscation),
         help="Also dump raw SSE/obfuscation events (in addition to --verbose request/response logs).",
     )
     p_serve.add_argument(
         "--debug-model",
         dest="debug_model",
-        default=_env_with_legacy("GPTMOCK_DEBUG_MODEL", "CHATGPT_LOCAL_DEBUG_MODEL"),
+        default=_env_with_legacy("GPTMOCK_DEBUG_MODEL", "CHATGPT_LOCAL_DEBUG_MODEL", defaults.debug_model),
         help="Forcibly override requested 'model' with this value",
     )
     p_serve.add_argument(
         "--reasoning-effort",
-        choices=["minimal", "low", "medium", "high", "xhigh"],
+        choices=["none", "minimal", "low", "medium", "high", "xhigh", "max"],
         default=(
             _env_with_legacy(
                 "GPTMOCK_REASONING_EFFORT", "CHATGPT_LOCAL_REASONING_EFFORT",
             )
-            or "medium"
+            or defaults.reasoning_effort
         ).lower(),
         help="Reasoning effort level for Responses API (default: medium)",
     )
@@ -597,7 +610,7 @@ def main() -> None:
             _env_with_legacy(
                 "GPTMOCK_REASONING_SUMMARY", "CHATGPT_LOCAL_REASONING_SUMMARY",
             )
-            or "auto"
+            or defaults.reasoning_summary
         ).lower(),
         help="Reasoning summary verbosity (default: auto)",
     )
@@ -608,7 +621,7 @@ def main() -> None:
             _env_with_legacy(
                 "GPTMOCK_REASONING_COMPAT", "CHATGPT_LOCAL_REASONING_COMPAT",
             )
-            or "standard"
+            or defaults.reasoning_compat
         ).lower(),
         help=(
             "Compatibility mode for exposing reasoning to clients "
@@ -619,12 +632,12 @@ def main() -> None:
     )
     p_serve.add_argument(
         "--expose-reasoning-models",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
         default=_env_truthy(
-            "GPTMOCK_EXPOSE_REASONING_MODELS", "CHATGPT_LOCAL_EXPOSE_REASONING_MODELS",
+            "GPTMOCK_EXPOSE_REASONING_MODELS", "CHATGPT_LOCAL_EXPOSE_REASONING_MODELS", defaults.expose_reasoning_models,
         ),
         help=(
-            "Expose GPT-5 family reasoning effort variants (minimal|low|medium|high|xhigh where supported) "
+            "Expose GPT-5 family reasoning effort variants (none|minimal|low|medium|high|xhigh|max where supported) "
             "as separate models from /v1/models. This allows choosing effort via model selection in compatible UIs."
         ),
     )
@@ -632,7 +645,7 @@ def main() -> None:
         "--enable-web-search",
         action=argparse.BooleanOptionalAction,
         default=_env_truthy(
-            "GPTMOCK_DEFAULT_WEB_SEARCH", "CHATGPT_LOCAL_ENABLE_WEB_SEARCH",
+            "GPTMOCK_DEFAULT_WEB_SEARCH", "CHATGPT_LOCAL_ENABLE_WEB_SEARCH", defaults.default_web_search,
         ),
         help=(
             "Enable default web_search tool when a request omits responses_tools (off by default). "
@@ -640,10 +653,21 @@ def main() -> None:
         ),
     )
     p_serve.add_argument(
-        "--cors-origins",
-        default=_env_with_legacy("GPTMOCK_CORS_ORIGINS", default="*"),
+        "--output-token-policy",
+        choices=["omit", "reject"],
+        default=(
+            _env_with_legacy("GPTMOCK_OUTPUT_TOKEN_POLICY") or defaults.output_token_policy
+        ).lower(),
         help=(
-            "Comma-separated list of allowed CORS origins (default: '*' allows all). "
+            "How to handle client output token limits that ChatGPT upstream cannot honor: "
+            "omit (default, with warning/header) or reject."
+        ),
+    )
+    p_serve.add_argument(
+        "--cors-origins",
+        default=_env_with_legacy("GPTMOCK_CORS_ORIGINS", default=defaults.cors_origins),
+        help=(
+            "Comma-separated list of allowed CORS origins (default: disabled). "
             "Also configurable via GPTMOCK_CORS_ORIGINS."
         ),
     )
@@ -672,6 +696,7 @@ def main() -> None:
                 debug_model=args.debug_model,
                 expose_reasoning_models=args.expose_reasoning_models,
                 default_web_search=args.enable_web_search,
+                output_token_policy=args.output_token_policy,
                 cors_origins=args.cors_origins,
             ),
         )

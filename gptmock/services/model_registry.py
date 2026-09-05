@@ -9,51 +9,37 @@ from gptmock.services.reasoning import (
     strip_effort_suffix,
 )
 
-OLLAMA_FAKE_EVAL = {
-    "total_duration": 8497226791,
-    "load_duration": 1747193958,
-    "prompt_eval_count": 24,
-    "prompt_eval_duration": 269219750,
-    "eval_count": 247,
-    "eval_duration": 6413802458,
-}
-
 MODEL_GROUPS: list[tuple[str, list[str]]] = [
-    ("gpt-5", ["high", "medium", "low", "minimal"]),
-    ("gpt-5.1", ["high", "medium", "low"]),
-    ("gpt-5.2", ["xhigh", "high", "medium", "low"]),
-    ("gpt-5-codex", ["high", "medium", "low"]),
-    ("gpt-5.2-codex", ["xhigh", "high", "medium", "low"]),
-    ("gpt-5.3-codex", ["xhigh", "high", "medium", "low"]),
     ("gpt-5.3-codex-spark", ["xhigh", "high", "medium", "low"]),
-    ("gpt-5.1-codex", ["high", "medium", "low"]),
-    ("gpt-5.1-codex-mini", ["high", "medium", "low"]),
-    ("gpt-5.1-codex-max", ["xhigh", "high", "medium", "low"]),
     ("gpt-5.4", ["xhigh", "high", "medium", "low"]),
     ("gpt-5.5", ["xhigh", "high", "medium", "low"]),
-    ("gpt-5.6", ["xhigh", "high", "medium", "low"]),
-    ("gpt-5.6-pro", ["xhigh", "high", "medium", "low"]),
-    ("gpt-5.6-sol", ["xhigh", "high", "medium", "low"]),
-    ("gpt-5.6-sol-pro", ["xhigh", "high", "medium", "low"]),
-    ("gpt-5.6-terra", ["xhigh", "high", "medium", "low"]),
-    ("gpt-5.6-terra-pro", ["xhigh", "high", "medium", "low"]),
-    ("gpt-5.6-luna", ["xhigh", "high", "medium", "low"]),
-    ("gpt-5.6-luna-pro", ["xhigh", "high", "medium", "low"]),
+    ("gpt-5.6", ["max", "xhigh", "high", "medium", "low", "none"]),
+    ("gpt-5.6-sol", ["max", "xhigh", "high", "medium", "low", "none"]),
+    ("gpt-5.6-terra", ["max", "xhigh", "high", "medium", "low", "none"]),
+    ("gpt-5.6-luna", ["max", "xhigh", "high", "medium", "low", "none"]),
+    ("gpt-6-astra", ["max", "xhigh", "high", "medium", "low"]),
     ("gpt-5.4-mini", ["xhigh", "high", "medium", "low"]),
+]
+
+SYNTHETIC_MODEL_GROUPS: list[tuple[str, list[str]]] = [
     ("gpt-5.4-fast", ["xhigh", "high", "medium", "low"]),
     ("gpt-5.5-fast", ["xhigh", "high", "medium", "low"]),
-    ("gpt-5.6-fast", ["xhigh", "high", "medium", "low"]),
-    ("gpt-5.6-sol-fast", ["xhigh", "high", "medium", "low"]),
-    ("gpt-5.6-terra-fast", ["xhigh", "high", "medium", "low"]),
-    ("gpt-5.6-luna-fast", ["xhigh", "high", "medium", "low"]),
+    ("gpt-5.6-fast", ["max", "xhigh", "high", "medium", "low", "none"]),
+    ("gpt-5.6-sol-fast", ["max", "xhigh", "high", "medium", "low", "none"]),
+    ("gpt-5.6-terra-fast", ["max", "xhigh", "high", "medium", "low", "none"]),
+    ("gpt-5.6-luna-fast", ["max", "xhigh", "high", "medium", "low", "none"]),
+    ("gpt-6-astra-fast", ["max", "xhigh", "high", "medium", "low"]),
     ("gpt-5.4-mini-fast", ["xhigh", "high", "medium", "low"]),
 ]
 
-_BASE_MODEL_IDS: frozenset[str] = frozenset(base for base, _ in MODEL_GROUPS)
+_BASE_MODEL_IDS: frozenset[str] = frozenset(
+    base for base, _ in (*MODEL_GROUPS, *SYNTHETIC_MODEL_GROUPS)
+)
+
+MODEL_REGISTRY_VERIFIED_AT = "2026-09-05T00:00:00Z"
 
 UPSTREAM_MODEL_ALIASES: dict[str, str] = {
     "gpt-5.6": "gpt-5.6-sol",
-    "gpt-5.6-luna": "gpt-5.6-terra",
 }
 
 FAST_MODEL_ALIASES: dict[str, str] = {
@@ -62,29 +48,29 @@ FAST_MODEL_ALIASES: dict[str, str] = {
     "gpt-5.6-fast": "gpt-5.6-sol",
     "gpt-5.6-sol-fast": "gpt-5.6-sol",
     "gpt-5.6-terra-fast": "gpt-5.6-terra",
-    "gpt-5.6-luna-fast": "gpt-5.6-terra",
+    "gpt-5.6-luna-fast": "gpt-5.6-luna",
+    "gpt-6-astra-fast": "gpt-6-astra",
     "gpt-5.4-mini-fast": "gpt-5.4-mini",
 }
 
 FAST_SERVICE_TIER: str = "priority"
 
-PRO_MODEL_ALIASES: dict[str, str] = {
-    "gpt-5.6-pro": "gpt-5.6-sol",
-    "gpt-5.6-sol-pro": "gpt-5.6-sol",
-    "gpt-5.6-terra-pro": "gpt-5.6-terra",
-    "gpt-5.6-luna-pro": "gpt-5.6-terra",
-}
-
 
 def normalize_model_name(name: str | None, debug_model: str | None = None) -> str:
+    raw = name if isinstance(name, str) else ""
+    raw = raw.strip().lower().split(":", 1)[0].replace("_", "-").replace("gpt6-", "gpt-6-")
+    if raw in {"gpt-6-astra-max", "gpt-6-astra-fast-max"}:
+        raise ValueError("Removed model alias: use gpt-6-astra with reasoning.effort='max' (or reasoning_effort='max')")
     if isinstance(debug_model, str) and debug_model.strip():
         return debug_model.strip()
     if not isinstance(name, str) or not name.strip():
-        return "gpt-5"
+        return "gpt-5.4"
     base = name.split(":", 1)[0].strip()
     for sep in ("-", "_"):
         lowered = base.lower()
-        for effort in ("minimal", "low", "medium", "high", "xhigh"):
+        if base == "gpt-5.1-codex-max":
+            return base
+        for effort in EFFORT_ORDER:
             suffix = f"{sep}{effort}"
             if lowered.endswith(suffix):
                 base = base[: -len(suffix)]
@@ -124,27 +110,18 @@ def normalize_model_name(name: str | None, debug_model: str | None = None) -> st
         "gpt5.6": "gpt-5.6",
         "gpt-5.6": "gpt-5.6",
         "gpt-5.6-latest": "gpt-5.6",
-        "gpt5.6-pro": "gpt-5.6-pro",
-        "gpt-5.6-pro": "gpt-5.6-pro",
-        "gpt-5.6-pro-latest": "gpt-5.6-pro",
         "gpt5.6-sol": "gpt-5.6-sol",
         "gpt-5.6-sol": "gpt-5.6-sol",
         "gpt-5.6-sol-latest": "gpt-5.6-sol",
-        "gpt5.6-sol-pro": "gpt-5.6-sol-pro",
-        "gpt-5.6-sol-pro": "gpt-5.6-sol-pro",
-        "gpt-5.6-sol-pro-latest": "gpt-5.6-sol-pro",
         "gpt5.6-terra": "gpt-5.6-terra",
         "gpt-5.6-terra": "gpt-5.6-terra",
         "gpt-5.6-terra-latest": "gpt-5.6-terra",
-        "gpt5.6-terra-pro": "gpt-5.6-terra-pro",
-        "gpt-5.6-terra-pro": "gpt-5.6-terra-pro",
-        "gpt-5.6-terra-pro-latest": "gpt-5.6-terra-pro",
         "gpt5.6-luna": "gpt-5.6-luna",
         "gpt-5.6-luna": "gpt-5.6-luna",
         "gpt-5.6-luna-latest": "gpt-5.6-luna",
-        "gpt5.6-luna-pro": "gpt-5.6-luna-pro",
-        "gpt-5.6-luna-pro": "gpt-5.6-luna-pro",
-        "gpt-5.6-luna-pro-latest": "gpt-5.6-luna-pro",
+        "gpt6-astra": "gpt-6-astra",
+        "gpt-6-astra": "gpt-6-astra",
+        "gpt-6-astra-latest": "gpt-6-astra",
         "gpt5.4-mini": "gpt-5.4-mini",
         "gpt-5.4-mini": "gpt-5.4-mini",
         "gpt-5.4-mini-latest": "gpt-5.4-mini",
@@ -166,6 +143,9 @@ def normalize_model_name(name: str | None, debug_model: str | None = None) -> st
         "gpt5.6-luna-fast": "gpt-5.6-luna-fast",
         "gpt-5.6-luna-fast": "gpt-5.6-luna-fast",
         "gpt-5.6-luna-fast-latest": "gpt-5.6-luna-fast",
+        "gpt6-astra-fast": "gpt-6-astra-fast",
+        "gpt-6-astra-fast": "gpt-6-astra-fast",
+        "gpt-6-astra-fast-latest": "gpt-6-astra-fast",
         "gpt5.4-mini-fast": "gpt-5.4-mini-fast",
         "gpt-5.4-mini-fast": "gpt-5.4-mini-fast",
         "gpt-5.4-mini-fast-latest": "gpt-5.4-mini-fast",
@@ -192,8 +172,6 @@ def resolve_upstream_model(model: str) -> tuple[str, dict[str, Any]]:
     """Return the upstream model ID and provider body overrides."""
     if model in FAST_MODEL_ALIASES:
         return FAST_MODEL_ALIASES[model], {"service_tier": FAST_SERVICE_TIER}
-    if model in PRO_MODEL_ALIASES:
-        return PRO_MODEL_ALIASES[model], {}
     if model in UPSTREAM_MODEL_ALIASES:
         return UPSTREAM_MODEL_ALIASES[model], {}
     return model, {}
@@ -217,7 +195,7 @@ def get_model_list(
     for base, efforts in MODEL_GROUPS:
         model_ids.append(base)
         if expose_reasoning:
-            model_ids.extend([f"{base}-{effort}" for effort in efforts])
+            model_ids.extend(f"{base}-{effort}" for effort in efforts if not (base == "gpt-6-astra" and effort == "max"))
 
     return model_ids
 
@@ -283,21 +261,22 @@ def get_ollama_models(expose_reasoning: bool = False) -> list[dict[str, Any]]:
     model_ids = get_model_list(expose_reasoning)
     models = []
     for model_id in model_ids:
+        upstream_model, _ = resolve_upstream_model(model_id)
         models.append(
             {
                 "name": model_id,
                 "model": model_id,
-                "modified_at": "2023-10-01T00:00:00Z",
-                "size": 815319791,
-                "digest": "8648f39daa8fbf5b18c7b4e6a8fb4990c692751d49917417b8842ca5758e7ffc",
+                "remote_model": upstream_model,
+                "modified_at": MODEL_REGISTRY_VERIFIED_AT,
+                "size": 0,
+                "digest": "",
                 "details": {
                     "parent_model": "",
-                    "format": "gguf",
-                    "family": "llama",
-                    "families": ["llama"],
-                    "parameter_size": "8.0B",
-                    "quantization_level": "Q4_0",
+                    "format": "remote",
+                    "family": "openai",
+                    "families": ["openai"],
                 },
+                "capabilities": ["completion", "tools", "thinking"],
             },
         )
     return models

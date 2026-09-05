@@ -24,3 +24,31 @@ jobs:
 
       - name: Lint
         run: uv run ruff check gptmock/ tests/
+
+      - name: Unit tests
+        run: uv run pytest tests/ --no-testmon -q
+
+      - name: Build Docker image
+        run: docker build --tag gptmock-ci:verify --file docker/Dockerfile .
+
+      - name: Verify container storage and protocol contracts
+        run: >-
+          docker run --rm --read-only
+          --tmpfs /tmp:rw,noexec,nosuid,size=64m
+          --tmpfs /data:rw,nosuid,size=16m,uid=10001,gid=10001,mode=0700
+          --cap-drop ALL --security-opt no-new-privileges:true --pids-limit 64
+          --env GPTMOCK_HOME=/data
+          --volume "${{ github.workspace }}/tests:/checks:ro"
+          --entrypoint /app/.venv/bin/python
+          gptmock-ci:verify /checks/docker_smoke.py
+
+      - name: Smoke test hardened Docker image
+        run: >-
+          docker run --rm --read-only
+          --tmpfs /tmp:rw,noexec,nosuid,size=64m
+          --tmpfs /data:rw,nosuid,size=16m,uid=10001,gid=10001,mode=0700
+          --cap-drop ALL --security-opt no-new-privileges:true
+          --env GPTMOCK_HOME=/data
+          --entrypoint /app/.venv/bin/python
+          gptmock-ci:verify
+          -c 'import os; from starlette.testclient import TestClient; from gptmock.app import create_app; from gptmock.core.settings import Settings; from gptmock.infra.auth import write_auth_file; assert os.getuid() == 10001; assert write_auth_file({"tokens": {"access_token": "test"}}); settings = Settings(api_key="proxy-secret"); assert len(settings.base_instructions) > 1000; client = TestClient(create_app(settings)); headers={"Authorization": "Bearer proxy-secret"}; assert client.get("/health").status_code == 200; assert client.get("/v1/models").status_code == 401; models=client.get("/v1/models", headers=headers); assert models.status_code == 200; ids={item["id"] for item in models.json()["data"]}; assert "gpt-5" not in ids and "gpt-5.6-luna" in ids and not any("-fast" in item for item in ids); tags=client.get("/api/tags", headers=headers).json()["models"]; assert tags and not any("-fast" in item["name"] for item in tags); assert tags[0]["size"] == 0 and tags[0]["digest"] == "" and tags[0]["details"]["format"] == "remote"; show=client.post("/api/show", json={"model": "gpt-5.4"}, headers=headers); assert show.status_code == 200 and show.json()["details"]["format"] == "remote"'

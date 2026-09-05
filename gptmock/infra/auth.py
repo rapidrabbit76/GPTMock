@@ -8,6 +8,10 @@ import json
 import os
 import secrets
 import sys
+import tempfile
+import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 import httpx
@@ -22,21 +26,35 @@ def eprint(*args, **kwargs) -> None:
 
 
 def get_home_dir() -> str:
-    home = os.getenv("GPTMOCK_HOME") or os.getenv("CHATGPT_LOCAL_HOME") or os.getenv("CODEX_HOME")
+    home = os.getenv("GPTMOCK_HOME") or os.getenv("CHATGPT_LOCAL_HOME")
     if not home:
         home = os.path.expanduser("~/.config/gptmock")
     return home
 
 
+def validate_auth_storage() -> None:
+    """Fail before login/serve when a migrated bind mount is inaccessible."""
+    home = get_home_dir()
+    os.makedirs(home, exist_ok=True)
+    path = os.path.join(home, "auth.json")
+    if os.path.exists(path):
+        with open(path, "rb"):
+            pass
+    with tempfile.TemporaryFile(dir=home):
+        pass
+
+
 def read_auth_file() -> dict[str, Any] | None:
-    for base in [
-        os.getenv("GPTMOCK_HOME"),
-        os.getenv("CHATGPT_LOCAL_HOME"),
-        os.getenv("CODEX_HOME"),
-        os.path.expanduser("~/.config/gptmock"),
-        os.path.expanduser("~/.chatgpt-local"),
-        os.path.expanduser("~/.codex"),
-    ]:
+    configured_home = os.getenv("GPTMOCK_HOME") or os.getenv("CHATGPT_LOCAL_HOME")
+    candidates = (
+        [configured_home]
+        if configured_home
+        else [
+            os.path.expanduser("~/.config/gptmock"),
+            os.path.expanduser("~/.chatgpt-local"),
+        ]
+    )
+    for base in candidates:
         if not base:
             continue
         path = os.path.join(base, "auth.json")
@@ -58,14 +76,24 @@ def write_auth_file(auth: dict[str, Any]) -> bool:
         eprint(f"ERROR: unable to create auth home directory {home}: {exc}")
         return False
     path = os.path.join(home, "auth.json")
+    temp_path = os.path.join(home, f".auth.{os.getpid()}.{secrets.token_hex(8)}.tmp")
     try:
-        with open(path, "w", encoding="utf-8") as fp:
+        with open(temp_path, "x", encoding="utf-8") as fp:
             if hasattr(os, "fchmod"):
                 os.fchmod(fp.fileno(), 0o600)
             json.dump(auth, fp, indent=2)
+            fp.flush()
+            os.fsync(fp.fileno())
+        os.replace(temp_path, path)
         return True
     except Exception as exc:
         eprint(f"ERROR: unable to write auth file: {exc}")
+        try:
+            os.unlink(temp_path)
+        except FileNotFoundError:
+            pass
+        except OSError:
+            pass
         return False
 
 
@@ -88,7 +116,55 @@ def generate_pkce() -> PkceCodes:
     return PkceCodes(code_verifier=code_verifier, code_challenge=code_challenge)
 
 
+@asynccontextmanager
+async def _refresh_lock() -> AsyncIterator[None]:
+    """Serialize refreshes across event loops and processes sharing an auth home."""
+    os.makedirs(get_home_dir(), exist_ok=True)
+    with open(os.path.join(get_home_dir(), ".refresh.lock"), "a+b") as lock_file:
+        if os.name == "nt":
+            import msvcrt
+            if lock_file.seek(0, os.SEEK_END) == 0:
+                lock_file.write(b"\0")
+                lock_file.flush()
+        else:
+            import fcntl
+        acquired = False
+        deadline = time.monotonic() + 65
+        try:
+            while not acquired:
+                try:
+                    if os.name == "nt":
+                        lock_file.seek(0)
+                        msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+                    else:
+                        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    acquired = True
+                except (BlockingIOError, PermissionError):
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError("Timed out waiting for credential refresh") from None
+                    await asyncio.sleep(0.05)
+            yield
+        finally:
+            if acquired:
+                if os.name == "nt":
+                    lock_file.seek(0)
+                    msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
 async def load_chatgpt_tokens(ensure_fresh: bool = True) -> tuple[str | None, str | None, str | None]:
+    auth = await asyncio.to_thread(read_auth_file)
+    tokens = auth.get("tokens", {}) if isinstance(auth, dict) else {}
+    if (ensure_fresh and isinstance(tokens, dict) and tokens.get("refresh_token")
+            and _should_refresh_access_token(tokens.get("access_token"), auth.get("last_refresh"))):
+        async with _refresh_lock():
+            # A previous waiter may have rotated the token. Always re-read under the lock.
+            return await _load_chatgpt_tokens(ensure_fresh=True)
+    return await _load_chatgpt_tokens(ensure_fresh=False)
+
+
+async def _load_chatgpt_tokens(ensure_fresh: bool = True) -> tuple[str | None, str | None, str | None]:
     auth = await asyncio.to_thread(read_auth_file)
     if not isinstance(auth, dict):
         return None, None, None

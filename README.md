@@ -13,26 +13,116 @@
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green.svg"></a>
 </p>
 
-> **This is a fork of [RayBytes/chatmock](https://github.com/RayBytes/chatmock).**
+> **GPTMock is maintained by [rapidrabbit76](https://github.com/rapidrabbit76/GPTMock), building on [RayBytes/chatmock](https://github.com/RayBytes/chatmock).**
+> The original project attribution, license, and upstream Docker Compose file are preserved.
 > The original Flask + synchronous `requests` stack has been replaced with **FastAPI + async `httpx`**, a layered architecture (router / service / infra), `pydantic-settings` configuration, and `uv` as the build system.
 
 Integration and coverage badges are updated from local runs. Refresh both by running `scripts/test.sh` with `GIST_TOKEN` available in your environment or `.env`.
 
-gptmock runs a local server that proxies requests to the ChatGPT Codex backend, exposing an OpenAI/Ollama compatible API. Use GPT-5, GPT-5-Codex, and other models directly from your ChatGPT Plus/Pro subscription — no API key required.
+GPTMock runs a local protocol adapter in front of the ChatGPT Codex backend. OpenAI SDKs, OpenAI-compatible frontends and gateways, and Ollama-compatible clients can use the same authenticated backend without GPTMock pretending that remote models are local weights. It advertises only model names verified against that backend; availability still depends on your paid ChatGPT account.
+
+GPTMock adapts client requests to the backend's supported format while preserving model identity, instruction text, strict function schemas, tool choice, reasoning controls, and service-tier requests. For Astra, system-message text is carried in the Responses `instructions` field so existing chat clients work without changing their prompts. The actual response model, service tier, terminal status, and remaining upstream errors are returned to the client.
 
 > **Migration note:** `--reasoning-compat` now defaults to `standard`, which emits reasoning via `delta.reasoning_content` / `message.reasoning_content` instead of injecting `<think>` tags into `content`. Set `--reasoning-compat think-tags` (or `GPTMOCK_REASONING_COMPAT=think-tags`) to keep the old behavior.
 
 ## Requirements
 
-- **Python 3.13+**
+- **Docker Engine 24+ with Docker Compose v2** (recommended deployment)
 - **Paid ChatGPT account** (Plus / Pro / Team / Enterprise)
-- [`uv`](https://docs.astral.sh/uv/getting-started/installation/) (for uvx usage)
+- **Python 3.13+** and [`uv`](https://docs.astral.sh/uv/getting-started/installation/) only for direct, non-Docker usage
 
 ---
 
-## Quick Start (uvx)
+## Quick Start (Docker, recommended)
 
-The fastest way to run gptmock. No clone, no install — just `uvx`.
+`docker-compose.yml` is preserved exactly from [rapidrabbit76/GPTMock](https://github.com/rapidrabbit76/GPTMock). It uses `rapidrabbit76/gptmock:latest`, the original `./volumes/gptmock` bind mount, and requires a local `.env` file. Its published ports bind to all host interfaces.
+
+The commands below explicitly select `docker-compose.local.yml`, a separate configuration that builds the checked-out source and applies the hardened runtime settings. It does not overwrite or merge into the original Compose file.
+
+### 1. Clone and build
+
+```bash
+git clone https://github.com/rapidrabbit76/GPTMock.git
+cd GPTMock
+docker compose -f docker-compose.local.yml build
+```
+
+### 2. Start (first run — login + serve in one step)
+
+Run the container interactively. If no credentials are found, the login flow starts automatically:
+
+```bash
+docker compose -f docker-compose.local.yml run --rm --service-ports serve
+```
+
+A URL will be printed in the terminal:
+
+```
+No credentials found. Starting login flow...
+Starting local login server on http://localhost:1455
+If your browser did not open, navigate to:
+  https://auth.openai.com/oauth/authorize?...
+
+If the browser can't reach this machine, paste the full redirect URL here and press Enter:
+```
+
+**Two ways to complete login:**
+
+1. **Browser on the same machine** — the URL opens automatically and the OAuth callback is caught on port 1455.
+2. **Browser on a different machine** — open the URL, complete login, then copy the full redirect URL from the browser address bar (starts with `http://localhost:1455/auth/callback?code=...`) and paste it into the terminal.
+
+Once login succeeds, the server starts automatically.
+
+### 3. Subsequent starts
+
+Once credentials are saved in the volume, just run in the background:
+
+```bash
+docker compose -f docker-compose.local.yml up -d serve
+```
+
+`docker-compose.local.yml` uses the named volume `gptmock-data`; the original `docker-compose.yml` continues to use `./volumes/gptmock`. The two configurations have separate credential storage. Log in once for the selected configuration, or explicitly migrate existing credentials before switching.
+
+### 4. Verify
+
+```bash
+curl -s http://localhost:8000/health | jq .
+```
+
+### Docker Environment Variables
+
+All server options below are also available as environment variables. Use the `GPTMOCK_*` canonical names (see [Server Options](#server-options)).
+
+Additional Docker-specific variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `GPTMOCK_HOME` | `/data` | Auth file directory — mount a volume here |
+| `GPTMOCK_LOGIN_BIND` | `0.0.0.0` | OAuth callback server bind address |
+| `GPTMOCK_API_KEY` | unset | Optional Bearer token required by `/v1/*` and `/api/*` routes |
+| `GPTMOCK_OUTPUT_TOKEN_POLICY` | `omit` | Handle unenforceable client output limits: `omit` with warning/header or `reject` with HTTP 400 |
+| `GPTMOCK_OLLAMA_VERSION` | `0.12.10` | Ollama API compatibility header version |
+
+In `docker-compose.local.yml`, the published ports bind to host loopback. If you expose them on a LAN, configure `GPTMOCK_API_KEY` and an explicit `GPTMOCK_CORS_ORIGINS` allowlist first.
+
+### Docker Security Defaults
+
+The separate `docker-compose.local.yml` deployment runs as UID/GID `10001`, mounts the root filesystem read-only, drops every Linux capability, enables `no-new-privileges`, applies a PID limit, and persists credentials only in the `gptmock-data` volume. Ports `8000` and `1455` are published to host loopback only.
+
+API authentication is optional for local loopback use. To require a Bearer token, copy `.env.example` to `.env` and set:
+
+```dotenv
+GPTMOCK_API_KEY=replace-with-a-long-random-value
+GPTMOCK_CORS_ORIGINS=
+```
+
+Clients must then send `Authorization: Bearer <GPTMOCK_API_KEY>` to `/v1/*` and `/api/*`. The health endpoint remains unauthenticated for container health checks. Browser CORS access stays disabled until an explicit origin allowlist is configured.
+
+---
+
+## Direct Install (uvx)
+
+This is the non-Docker development path. No clone or persistent installation is needed.
 
 ### 1. Login
 
@@ -74,92 +164,61 @@ gptmock info
 
 ---
 
-## Quick Start (Docker)
-
-No build required — pull the pre-built image and run.
-
-### 1. Create `docker-compose.yml`
-
-```yaml
-services:
-  serve:
-    image: rapidrabbit76/gptmock:latest
-    container_name: gptmock
-    command: ["serve", "--verbose", "--host", "0.0.0.0"]
-    ports:
-      - "8000:8000"
-      - "1455:1455"  # OAuth callback port (needed during first-time login)
-    volumes:
-      - gptmock-data:/data
-    environment:
-      - GPTMOCK_HOME=/data
-      - GPTMOCK_LOGIN_BIND=0.0.0.0
-    healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health').status==200 else 1)\""]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 120s  # Allows time for first-time login before health checks begin
-
-volumes:
-  gptmock-data:
-```
-
-### 2. Start (first run — login + serve in one step)
-
-Run the container interactively. If no credentials are found, the login flow starts automatically:
-
-```bash
-docker compose run --rm --service-ports serve
-```
-
-A URL will be printed in the terminal:
-
-```
-No credentials found. Starting login flow...
-Starting local login server on http://localhost:1455
-If your browser did not open, navigate to:
-  https://auth.openai.com/oauth/authorize?...
-
-If the browser can't reach this machine, paste the full redirect URL here and press Enter:
-```
-
-**Two ways to complete login:**
-
-1. **Browser on the same machine** — the URL opens automatically and the OAuth callback is caught on port 1455.
-2. **Browser on a different machine** — open the URL, complete login, then copy the full redirect URL from the browser address bar (starts with `http://localhost:1455/auth/callback?code=...`) and paste it into the terminal.
-
-Once login succeeds, the server starts automatically.
-
-### 3. Subsequent starts
-
-Once credentials are saved in the volume, just run in the background:
-
-```bash
-docker compose up -d serve
-```
-
-### 4. Verify
-
-```bash
-curl -s http://localhost:8000/health | jq .
-```
-
-### Docker Environment Variables
-
-All server options below are also available as environment variables. Use the `GPTMOCK_*` canonical names (see [Server Options](#server-options)).
-
-Additional Docker-specific variables:
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `GPTMOCK_HOME` | `/data` | Auth file directory — mount a volume here |
-| `GPTMOCK_LOGIN_BIND` | `0.0.0.0` | OAuth callback server bind address |
-| `GPTMOCK_OLLAMA_VERSION` | `0.12.10` | Ollama API compatibility header version |
-
----
-
 ## Usage Examples
+
+### Existing Docker volume migration
+
+The image runs as UID/GID `10001:10001`. The original Compose bind mount can contain files written by an older root-running image; image-layer ownership does not change host bind-mount permissions. Back up the credential directory and stop GPTMock before migrating it. On a Linux host, from the verified GPTMock checkout directory:
+
+```bash
+realpath ./volumes/gptmock
+sudo chown -R 10001:10001 ./volumes/gptmock
+sudo chmod 700 ./volumes/gptmock
+sudo chmod 600 ./volumes/gptmock/auth.json  # if credentials already exist
+```
+
+Apply ownership changes only to that credential directory, not the repository or a broader parent directory. Do not use world-writable permissions. Docker Desktop bind-mount permission behavior can differ; the separate local Compose named volume is the recommended fresh-install path. Login and serve check storage access before starting and report migration guidance if it is inaccessible. Concurrent credential refreshes sharing one auth home are serialized using a local filesystem lock; avoid simultaneous manual re-login and refresh or network filesystems without reliable locking.
+
+### OpenCode
+
+Use OpenCode's Responses provider as the recommended configuration. OpenCode 1.x configuration:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "gptmock": {
+      "npm": "@ai-sdk/openai",
+      "name": "GPTMock",
+      "options": {
+        "baseURL": "http://127.0.0.1:8000/v1",
+        "apiKey": "replace-with-your-GPTMOCK_API_KEY"
+      },
+      "models": {
+        "gpt-5.6-luna": {
+          "name": "GPT-5.6 Luna",
+          "reasoning": true,
+          "tool_call": true,
+          "variants": {
+            "none": { "reasoningEffort": "none" },
+            "low": { "reasoningEffort": "low" },
+            "medium": { "reasoningEffort": "medium" },
+            "high": { "reasoningEffort": "high" },
+            "xhigh": { "reasoningEffort": "xhigh" },
+            "max": { "reasoningEffort": "max" }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+Select `gptmock/gpt-5.6-luna` and the desired variant. OpenCode automatically sends `max_output_tokens`; GPTMock's default `omit` policy keeps the request compatible while explicitly reporting that the limit was not enforced.
+
+For `gpt-6-astra`, `@ai-sdk/openai-compatible` also works through GPTMock's Chat endpoint: text system messages are moved into upstream `instructions`. OpenCode 1.17.18 completed a real file-read tool call and its follow-up through both adapters. This Astra-specific compatibility does not establish Chat-adapter support for every other model. SDK versions may encode Responses prompts as developer input or as `instructions`.
+
+To request maximum Astra reasoning, select `gpt-6-astra` with `--variant max` (provider option `reasoningEffort: "max"`). `gpt-6-astra-max` is not a model: that removed alias returns HTTP 400 with migration guidance instead of silently selecting another effort. `max` remains supported through the reasoning parameter.
 
 ### Python (OpenAI SDK)
 
@@ -168,7 +227,7 @@ from openai import OpenAI
 
 client = OpenAI(
     base_url="http://127.0.0.1:8000/v1",
-    api_key="anything"  # ignored by gptmock
+    api_key="gptmock-local"  # use GPTMOCK_API_KEY when it is configured
 )
 
 resp = client.chat.completions.create(
@@ -185,7 +244,7 @@ from langchain_openai import ChatOpenAI
 
 llm = ChatOpenAI(
     base_url="http://127.0.0.1:8000/v1",
-    api_key="anything",
+    api_key="gptmock-local",  # use GPTMOCK_API_KEY when it is configured
     model="gpt-5.4",
 )
 response = llm.invoke("hello world")
@@ -329,44 +388,66 @@ Supported image content types are PNG, JPEG, GIF, and WebP. `detail: "original"`
 
 | Model | Reasoning Efforts | Status |
 |-------|-------------------|--------|
-| `gpt-5` | `minimal` / `low` / `medium` / `high` | ⚠️ Recognized by GPTMock, currently rejected upstream for ChatGPT Codex accounts |
-| `gpt-5.1` | `low` / `medium` / `high` | ⚠️ Recognized by GPTMock, currently rejected upstream for ChatGPT Codex accounts |
-| `gpt-5.2` | `low` / `medium` / `high` / `xhigh` | ✅ Verified upstream |
-| `gpt-5-codex` | `low` / `medium` / `high` | ⚠️ Recognized by GPTMock, currently rejected upstream for ChatGPT Codex accounts |
-| `gpt-5.1-codex` | `low` / `medium` / `high` | ⚠️ Recognized by GPTMock, currently rejected upstream for ChatGPT Codex accounts |
-| `gpt-5.1-codex-mini` | `low` / `medium` / `high` | ⚠️ Recognized by GPTMock, currently rejected upstream for ChatGPT Codex accounts |
-| `gpt-5.1-codex-max` | `low` / `medium` / `high` / `xhigh` | ⚠️ Recognized by GPTMock, currently rejected upstream for ChatGPT Codex accounts |
-| `gpt-5.2-codex` | `low` / `medium` / `high` / `xhigh` | ⚠️ Recognized by GPTMock, currently rejected upstream for ChatGPT Codex accounts |
-| `gpt-5.3-codex` | `low` / `medium` / `high` / `xhigh` | ✅ Verified upstream |
 | `gpt-5.3-codex-spark` | `low` / `medium` / `high` / `xhigh` | ✅ Verified upstream |
 | `gpt-5.4` | `low` / `medium` / `high` / `xhigh` | ✅ Verified upstream |
-| `gpt-5.5` | `low` / `medium` / `high` / `xhigh` | ⚠️ Recognized by GPTMock, upstream availability depends on account rollout |
-| `gpt-5.6` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (routes to `gpt-5.6-sol`) |
-| `gpt-5.6-fast` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (priority tier alias of `gpt-5.6-sol`) |
-| `gpt-5.6-pro` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (routes to `gpt-5.6-sol`) |
-| `gpt-5.6-sol` | `low` / `medium` / `high` / `xhigh` | ✅ Verified upstream |
-| `gpt-5.6-sol-fast` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (priority tier alias of `gpt-5.6-sol`) |
-| `gpt-5.6-sol-pro` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (routes to `gpt-5.6-sol`) |
-| `gpt-5.6-terra` | `low` / `medium` / `high` / `xhigh` | ✅ Verified upstream |
-| `gpt-5.6-terra-fast` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (priority tier alias of `gpt-5.6-terra`) |
-| `gpt-5.6-terra-pro` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (routes to `gpt-5.6-terra`) |
-| `gpt-5.6-luna` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (routes to `gpt-5.6-terra`) |
-| `gpt-5.6-luna-fast` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (priority tier alias of `gpt-5.6-terra`) |
-| `gpt-5.6-luna-pro` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (routes to `gpt-5.6-terra`) |
+| `gpt-5.5` | `low` / `medium` / `high` / `xhigh` | ✅ Verified upstream |
+| `gpt-5.6` | `none` / `low` / `medium` / `high` / `xhigh` / `max` | ✅ Verified alias; upstream resolves it to `gpt-5.6-sol` |
+| `gpt-5.6-sol` | `none` / `low` / `medium` / `high` / `xhigh` / `max` | ✅ Verified upstream |
+| `gpt-5.6-terra` | `none` / `low` / `medium` / `high` / `xhigh` / `max` | ✅ Verified upstream |
+| `gpt-5.6-luna` | `none` / `low` / `medium` / `high` / `xhigh` / `max` | ✅ Verified upstream |
 | `gpt-5.4-mini` | `low` / `medium` / `high` / `xhigh` | ✅ Verified upstream |
-| `gpt-5.4-fast` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (priority tier alias of `gpt-5.4`) |
-| `gpt-5.5-fast` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (priority tier alias of `gpt-5.5`) |
-| `gpt-5.4-mini-fast` | `low` / `medium` / `high` / `xhigh` | ✅ Supported (priority tier alias of `gpt-5.4-mini`) |
+| `gpt-6-astra` | `low` / `medium` / `high` / `xhigh` / `max` | ✅ Verified upstream on 2026-09-05 |
 
-> **Fast variants** (`*-fast`) are synthetic aliases that map to the base model plus `service_tier="priority"` in the upstream payload. No separate endpoint or auth is required — the ChatGPT backend accepts them as paid-tier priority requests.
+Direct Docker probes on 2026-09-03 confirmed every listed GPT-5.6 reasoning effort (`none` through `max`) for Sol, Terra, and Luna through `/v1/responses`. All 18 requests completed successfully and returned the requested concrete model name.
 
-> **GPT-5.6 compatibility note:** GPTMock accepts the full OpenCode-style GPT-5.6 name set. Where the current ChatGPT backend rejects an advertised ID directly, GPTMock routes it to the closest verified GPT-5.6 upstream model while preserving the requested model name in the OpenAI-compatible response.
+> **Fast compatibility aliases:** `*-fast` names are accepted when requested directly and add `service_tier="priority"` to the same verified base-model request. They are not separate models, are not advertised by `/v1/models` or `/api/tags`, and do not guarantee priority service. New integrations should prefer the verified base model plus an explicit `service_tier="priority"` request. GPTMock returns the actual upstream `service_tier` unchanged. The seven pre-Astra aliases were accepted on 2026-08-26 with `service_tier="default"`. Astra's priority request was separately accepted on 2026-09-05 and also returned `default`; `gpt-6-astra-fast` uses that same request-only convention.
 
-> **Upstream availability note:** model availability can change independently of GPTMock releases. GPTMock may recognize a model ID even when the current ChatGPT Codex backend rejects it for a specific account or subscription. On 2026-04-17, direct probe requests against the current upstream accepted `gpt-5.2`, `gpt-5.3-codex`, `gpt-5.3-codex-spark`, `gpt-5.4`, and `gpt-5.4-mini`, while rejecting `gpt-5`, `gpt-5.1`, `gpt-5-codex`, `gpt-5.1-codex`, `gpt-5.1-codex-mini`, `gpt-5.1-codex-max`, and `gpt-5.2-codex` with: `The '<model>' model is not supported when using Codex with a ChatGPT account.`
+> **GPT-5.6 compatibility note:** GPTMock exposes only verified GPT-5.6 model names. `gpt-5.6` follows OpenAI's documented alias to `gpt-5.6-sol`. OpenAI documents Pro as `reasoning.mode="pro"` on the same model rather than as a `*-pro` model ID, but the ChatGPT Codex backend rejected that mode in direct probes. GPTMock therefore advertises no Pro model slug and rejects `reasoning.mode` locally instead of sending a request known to be unsupported by this upstream.
+
+> **GPT-6 Astra:** `gpt-6-astra` connects directly to that exact upstream model. The [official model documentation](https://developers.openai.com/api/docs/models/gpt-6-astra) lists `low`, `medium`, `high`, `xhigh`, and `max`; direct ChatGPT Codex probes on 2026-09-05 completed at all five efforts and echoed the requested model and effort. That backend rejected `none`, `minimal`, `ultra`, `gpt-6-astra-pro`, and `reasoning.mode="pro"`. Those options are not advertised as supported. OpenAI Chat Completions and Ollama clients use GPTMock's existing Responses-backed adapter, including tool calls. See [Astra validation](docs/astra-validation.md) for the tested interfaces and limitations.
+
+> **Astra client compatibility:** the connected backend rejects a literal `system` input role. GPTMock automatically carries text from those messages into the supported `instructions` field, after any existing instructions and in message order. Developer/user messages and tool results remain in `input`. This applies to OpenAI Chat, Responses, Ollama chat, and Ollama generate's `system` field, including fast requests and streaming. Existing clients can keep their system prompts.
+
+> **Upstream availability note:** model availability can change independently of GPTMock releases. The older model list reflects direct probes made on 2026-08-26, GPT-5.6 was rechecked on 2026-09-03, and Astra was verified on 2026-09-05. `gpt-5`, `gpt-5.1`, `gpt-5.2`, `gpt-5-codex`, `gpt-5.1-codex`, `gpt-5.1-codex-mini`, `gpt-5.1-codex-max`, `gpt-5.2-codex`, and `gpt-5.3-codex` were rejected and are therefore not advertised.
 
 ### Deprecated / Unsupported Models
 
-None hardcoded in GPTMock at this time. See the upstream availability note above for models that are currently rejected by the ChatGPT Codex backend.
+Rejected names are omitted from `/v1/models` and `/api/tags`. A client can still send an arbitrary model identifier; GPTMock forwards it unchanged and preserves the upstream rejection instead of silently routing it to a different model.
+
+### Request and Response Semantics
+
+| Input or event | GPTMock behavior |
+|----------------|------------------|
+| `system` and `developer` messages | For Astra, system text is moved into `instructions` and developer messages remain in `input`; other models retain the supplied roles |
+| Function tools with `strict: true` | Strict schema flag and parameters are preserved |
+| `tool_choice: "required"` | Forwarded as required; never weakened to `auto` |
+| Rejected tools or model options | Upstream error is returned; GPTMock does not remove tools and retry |
+| `reasoning.effort` or Chat `reasoning_effort` | Validated against the selected model family and forwarded; conflicting values are rejected |
+| Explicit `reasoning.mode` | Rejected locally; the connected ChatGPT Codex backend rejected Pro mode |
+| `max_output_tokens`, `max_completion_tokens`, or `max_tokens` | Not forwarded because the ChatGPT Codex upstream cannot enforce them. Default `omit` mode logs a warning and returns `X-GPTMock-Omitted-Parameters`; `reject` mode returns HTTP 400 |
+| `service_tier` or `*-fast` request | Requested tier is sent, while the tier actually returned by upstream is exposed unchanged |
+| `response.incomplete` | Preserved by `/v1/responses`; mapped to `length` or `content_filter` for text. Incomplete tool responses produce an error in Chat/Ollama, not an executable `tool_calls` finish |
+| `response.failed` or interrupted SSE | Returned as an explicit error; an interrupted stream is never converted into a successful completion |
+| Upstream response model | Returned unchanged instead of being replaced with the requested alias |
+| Ollama model metadata | Marked as remote with zero/empty unknown size and digest values; no GGUF, Llama family, parameter size, quantization, or local evaluation timings are fabricated |
+| Ollama function calls | Arguments are native JSON objects. Streaming fragments are buffered until a valid tool-call finish; tool results are matched by name when supplied |
+
+The GPT-5.6 alias and reasoning-effort range follow [OpenAI's GPT-5.6 model guidance](https://developers.openai.com/api/docs/guides/latest-model). GPTMock's accepted options are narrower because they reflect what the ChatGPT Codex backend accepted during the dated probes above, not what may be available through a separate OpenAI API account.
+
+The default output-token policy is intentionally compatibility-oriented. OpenAI SDKs and agent frontends commonly add an output-token field even when the user did not set one. GPTMock accepts such requests but does not claim that the limit was honored: the field is omitted only from the upstream request, a warning names the omitted field, and the HTTP response exposes the same fact. Use `--output-token-policy reject` when failing closed is preferable to frontend compatibility.
+
+Docker-backed OpenCode 1.17.18 probes on 2026-09-03 verified direct Luna/Sol/Terra model selection, `none`/`high`/`max` reasoning variants, `service_tier="priority"` request preservation, streaming, tool definitions, `tool_choice="auto"`, and a complete function-call/result/final-answer loop. The upstream response still reported the actual tier as `default`. OpenCode did not emit configured `top_p`, `tool_choice="required"`, or strict tool schemas in these runs, so those semantics remain covered by GPTMock's direct request tests rather than claimed as OpenCode-verified.
+
+The 2026-09-05 pre-PR verification reran OpenCode against a temporary local server, including Astra, reasoning variants, tool round trips, and injected stream failures. Native Ollama SDK tool loops and direct strict/named-tool tests also passed. These live checks are separate from the Docker image/runtime checks; see [pre-PR validation](docs/pr-validation.md) for results, versions, and coverage boundaries.
+
+### Ollama Request Semantics
+
+GPTMock supports both `/api/chat` and `/api/generate`. The native Ollama `think` field maps string levels to reasoning effort; GPTMock additionally accepts the full model-specific effort range (`none` through `max`) and the explicit `reasoning_effort` field. `think: false` suppresses the returned thinking summary. The non-standard `service_tier: "priority"` field requests priority service, while the actual upstream tier remains authoritative. Ollama `format: "json"` and JSON-schema objects map to structured output.
+
+`options.num_predict` cannot be enforced by the ChatGPT Codex backend, so it follows `GPTMOCK_OUTPUT_TOKEN_POLICY`: default `omit` mode returns `X-GPTMock-Omitted-Parameters: options.num_predict`, while `reject` mode returns HTTP 400. Other non-empty Ollama runtime `options` are rejected instead of being silently ignored. Generate-only `suffix`, non-empty `template`, `context`, and `raw: true` are also rejected because this upstream cannot preserve their meaning.
+
+Docker probes on 2026-09-03 verified authenticated raw HTTP requests for tags, show, structured output, reasoning, priority tier requests, streaming, strict required tools, tool-result continuation, output-limit policy, and upstream errors. Ollama CLI 0.33.1 also completed `ollama show` and a streaming `ollama run` through the loopback-only unauthenticated container. Two CLI limitations remain explicit: the CLI did not send `OLLAMA_API_KEY` to a custom local host, and `ollama list` panicked when it encountered the intentionally empty remote-model digest. GPTMock will not fabricate a weight digest to satisfy that client assumption; use `/api/tags`, `ollama show <model>`, or an Ollama-compatible client that accepts remote metadata.
+
 ---
 
 ## API Endpoints
@@ -375,10 +456,11 @@ None hardcoded in GPTMock at this time. See the upstream availability note above
 |--------|------|-------------|
 | POST | `/v1/chat/completions` | OpenAI Chat Completions (stream / non-stream) |
 | POST | `/v1/completions` | OpenAI Text Completions |
-| POST | `/v1/responses` | OpenAI Responses API (for LangChain codex routing) |
+| POST | `/v1/responses` | OpenAI Responses API semantics |
 | GET | `/v1/models` | List available models |
 | GET | `/api/version` | Ollama-compatible version info |
 | POST | `/api/chat` | Ollama-compatible chat |
+| POST | `/api/generate` | Ollama-compatible text generation |
 | POST | `/api/show` | Ollama-compatible model details |
 | GET | `/api/tags` | Ollama model list |
 | GET | `/health` | Health check |
@@ -387,14 +469,14 @@ None hardcoded in GPTMock at this time. See the upstream availability note above
 
 ## Features
 
-- **Streaming & Non-streaming** — real-time SSE and buffered JSON responses
+- **Streaming & Non-streaming** — real-time SSE and buffered JSON responses, including explicit incomplete terminal states
 - **Structured Output** — `response_format` with `json_schema` / `json_object` support
 - **Tool / Function Calling** — including web search with URL citation annotations via `responses_tools`
 - **Image Generation** — Responses API `image_generation` tool support with base64 PNG output
 - **Local Image Inspection** — Codex-compatible `view_image` function tool for allowed local image paths
 - **Thinking Summaries** — `<think>` tags, `o3` reasoning format, or legacy mode
 - **Responses API** — `POST /v1/responses` for LangChain and other clients that auto-route codex models
-- **Ollama Compatibility** — drop-in replacement for Ollama API consumers
+- **Ollama Compatibility** — chat and generate APIs with remote-model metadata, without fabricated GGUF sizes, digests, or local evaluation timings
 - **Auto Token Refresh** — JWT tokens are refreshed automatically before expiry
 
 ---
@@ -414,14 +496,17 @@ Each option can also be set via environment variable. Precedence: **CLI flag > `
 | `--verbose` | `GPTMOCK_VERBOSE` | off | Log request/response payloads |
 | `--verbose-obfuscation` | `GPTMOCK_VERBOSE_OBFUSCATION` | off | Also dump raw SSE/obfuscation events |
 | `--debug-model` | `GPTMOCK_DEBUG_MODEL` | — | Force all requests to use this model name |
-| `--reasoning-effort` | `GPTMOCK_REASONING_EFFORT` | `medium` | `minimal` / `low` / `medium` / `high` / `xhigh` |
+| `--reasoning-effort` | `GPTMOCK_REASONING_EFFORT` | `medium` | `none` / `minimal` / `low` / `medium` / `high` / `xhigh` / `max`; availability is model-specific |
 | `--reasoning-summary` | `GPTMOCK_REASONING_SUMMARY` | `auto` | `auto` / `concise` / `detailed` / `none` |
 | `--reasoning-compat` | `GPTMOCK_REASONING_COMPAT` | `standard` | How reasoning is exposed: `standard` / `think-tags` / `o3` / `legacy` (`openai` is accepted as an alias for `standard`, `current` as an alias for `legacy`) |
 | `--expose-reasoning-models` | `GPTMOCK_EXPOSE_REASONING_MODELS` | off | Show effort variants as separate models in `/v1/models` |
 | `--enable-web-search` | `GPTMOCK_DEFAULT_WEB_SEARCH` | off | Enable web search by default when `responses_tools` is omitted |
-| `--cors-origins` | `GPTMOCK_CORS_ORIGINS` | `*` | Comma-separated allowed CORS origins |
+| `--output-token-policy` | `GPTMOCK_OUTPUT_TOKEN_POLICY` | `omit` | `omit` unenforceable output limits with warning/header, or `reject` them with HTTP 400 |
+| `--cors-origins` | `GPTMOCK_CORS_ORIGINS` | disabled | Comma-separated allowed CORS origins |
+| — | `GPTMOCK_API_KEY` | unset | Optional Bearer token for `/v1/*` and `/api/*`; strongly recommended before non-loopback exposure |
 
 > **Legacy aliases**: `CHATGPT_LOCAL_REASONING_EFFORT`, `CHATGPT_LOCAL_REASONING_SUMMARY`, `CHATGPT_LOCAL_REASONING_COMPAT`, `CHATGPT_LOCAL_EXPOSE_REASONING_MODELS`, `CHATGPT_LOCAL_ENABLE_WEB_SEARCH`, `CHATGPT_LOCAL_DEBUG_MODEL` are still accepted as fallbacks.
+
 ---
 
 ## Web Search
@@ -504,7 +589,7 @@ data: {"choices": [{"delta": {}, "finish_reason": "stop"}]}
 curl http://127.0.0.1:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gpt-5",
+    "model": "gpt-5.4",
     "messages": [{"role":"user","content":"Find current METAR rules"}],
     "stream": true,
     "responses_tools": [{"type": "web_search"}],
@@ -518,12 +603,13 @@ curl http://127.0.0.1:8000/v1/chat/completions \
 
 - Requires an active, paid ChatGPT account.
 - Context length may be partially used by internal system instructions.
-- For the fastest responses, set `--reasoning-effort` to `low` and `--reasoning-summary` to `none`.
-- The context size of this route is larger than what you get in the regular ChatGPT app.
+- For the lowest-reasoning latency baseline, use the lowest effort supported by the selected model (`none` for GPT-5.6, otherwise usually `low`) and set `--reasoning-summary` to `none`.
+- Context limits and account entitlements are controlled by the ChatGPT Codex backend and may differ from the ChatGPT app or OpenAI API.
 - When the model returns a thinking summary, the default `standard` mode emits `reasoning_content` fields without polluting `content`. Set `--reasoning-compat think-tags` to keep `<think>` tags for older chat apps, or `--reasoning-compat legacy` for the older reasoning fields.
 - This project is not affiliated with OpenAI. Use responsibly and at your own risk.
 
 ## Credits
 
 - Original project: [RayBytes/chatmock](https://github.com/RayBytes/chatmock)
-- This fork: [rapidrabbit76/GPTMock](https://github.com/rapidrabbit76/GPTMock)
+- GPTMock author and upstream maintainer: [rapidrabbit76/GPTMock](https://github.com/rapidrabbit76/GPTMock)
+- Contribution fork: [binary1215/GPTMock](https://github.com/binary1215/GPTMock)

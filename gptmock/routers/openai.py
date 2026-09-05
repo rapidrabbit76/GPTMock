@@ -18,6 +18,7 @@ from gptmock.services.chat import (
     ChatCompletionError,
     process_chat_completion,
     process_text_completion,
+    supplied_parameters,
 )
 from gptmock.services.model_registry import get_openai_models
 from gptmock.services.responses import process_responses_api
@@ -25,6 +26,20 @@ from gptmock.services.responses import process_responses_api
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _output_token_headers(
+    payload: dict[str, object],
+    settings: Settings,
+    parameter_names: tuple[str, ...],
+) -> dict[str, str]:
+    """Expose output limits intentionally omitted from the upstream request."""
+    if settings.output_token_policy != "omit":
+        return {}
+    omitted = supplied_parameters(payload, parameter_names)
+    if not omitted:
+        return {}
+    return {"X-GPTMock-Omitted-Parameters": ",".join(omitted)}
 
 
 @router.post("/v1/chat/completions")
@@ -38,6 +53,11 @@ async def chat_completions(
     Handles both streaming and non-streaming requests.
     """
     payload = body.model_dump()
+    policy_headers = _output_token_headers(
+        payload,
+        settings,
+        ("max_completion_tokens", "max_tokens", "max_output_tokens"),
+    )
 
     if settings.verbose:
         log_json("IN POST /v1/chat/completions", payload, logger=logger.debug)
@@ -59,10 +79,11 @@ async def chat_completions(
                 headers={
                     "Cache-Control": "no-cache",
                     "Connection": "keep-alive",
+                    **policy_headers,
                 },
             )
         # response is a dict
-        return JSONResponse(response)
+        return JSONResponse(response, headers=policy_headers)
 
     except ChatCompletionError as e:
         error_response = e.error_data or {"error": {"message": e.message}}
@@ -72,7 +93,7 @@ async def chat_completions(
                 error_response,
                 logger=logger.debug,
             )
-        return JSONResponse(error_response, status_code=e.status_code)
+        return JSONResponse(error_response, status_code=e.status_code, headers=policy_headers)
 
 
 @router.post("/v1/completions")
@@ -84,6 +105,11 @@ async def completions(
     """OpenAI-compatible text completions endpoint.
     """
     payload = body.model_dump()
+    policy_headers = _output_token_headers(
+        payload,
+        settings,
+        ("max_tokens", "max_completion_tokens", "max_output_tokens"),
+    )
 
     if settings.verbose:
         log_json("IN POST /v1/completions", payload, logger=logger.debug)
@@ -105,10 +131,11 @@ async def completions(
                 headers={
                     "Cache-Control": "no-cache",
                     "Connection": "keep-alive",
+                    **policy_headers,
                 },
             )
         # response is a dict
-        return JSONResponse(response)
+        return JSONResponse(response, headers=policy_headers)
 
     except ChatCompletionError as e:
         error_response = e.error_data or {"error": {"message": e.message}}
@@ -116,7 +143,7 @@ async def completions(
             log_json(
                 "OUT POST /v1/completions ERROR", error_response, logger=logger.debug,
             )
-        return JSONResponse(error_response, status_code=e.status_code)
+        return JSONResponse(error_response, status_code=e.status_code, headers=policy_headers)
 
 
 @router.post("/v1/responses")
@@ -127,6 +154,7 @@ async def responses_create(
     http_client: httpx.AsyncClient = Depends(get_http_client),
 ):
     payload = body.model_dump()
+    policy_headers = _output_token_headers(payload, settings, ("max_output_tokens",))
 
     if settings.verbose:
         log_json("IN POST /v1/responses", payload, logger=logger.debug)
@@ -146,10 +174,11 @@ async def responses_create(
                 headers={
                     "Cache-Control": "no-cache",
                     "Connection": "keep-alive",
+                    **policy_headers,
                 },
             )
 
-        return JSONResponse(response)
+        return JSONResponse(response, headers=policy_headers)
 
     except ChatCompletionError as e:
         error_response = e.error_data or {"error": {"message": e.message}}
@@ -157,7 +186,7 @@ async def responses_create(
             log_json(
                 "OUT POST /v1/responses ERROR", error_response, logger=logger.debug,
             )
-        return JSONResponse(error_response, status_code=e.status_code)
+        return JSONResponse(error_response, status_code=e.status_code, headers=policy_headers)
 
 
 @router.get("/v1/models")

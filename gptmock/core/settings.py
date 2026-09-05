@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Literal
 
 from pydantic import computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -43,9 +44,11 @@ class Settings(BaseSettings):
     debug_model: str | None = None
     expose_reasoning_models: bool = False
     default_web_search: bool = False
+    output_token_policy: Literal["omit", "reject"] = "omit"
     host: str = "127.0.0.1"
     port: int = 8000
-    cors_origins: str = "*"
+    cors_origins: str = ""
+    api_key: str | None = None
     ollama_version: str = "0.12.10"
 
     @computed_field

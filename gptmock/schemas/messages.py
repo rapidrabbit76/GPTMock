@@ -70,6 +70,7 @@ def convert_tools_with_mapping(tools: Any) -> tuple[list[dict[str, Any]], dict[s
             continue
         desc = fn.get("description") if isinstance(fn, dict) else None
         params = fn.get("parameters") if isinstance(fn, dict) else None
+        strict = fn.get("strict") if isinstance(fn, dict) else None
         if not isinstance(params, dict):
             params = {"type": "object", "properties": {}}
         out.append(
@@ -77,7 +78,7 @@ def convert_tools_with_mapping(tools: Any) -> tuple[list[dict[str, Any]], dict[s
                 "type": "function",
                 "name": short_name_map.get(name, name),
                 "description": desc or "",
-                "strict": False,
+                "strict": strict if isinstance(strict, bool) else False,
                 "parameters": params,
             },
         )
@@ -194,9 +195,6 @@ def convert_chat_messages_to_responses_input(
     input_items: list[dict[str, Any]] = []
     for message in messages:
         role = message.get("role")
-        if role == "system":
-            continue
-
         if role == "tool":
             tool_item = _convert_tool_message(message)
             if tool_item:
@@ -210,7 +208,7 @@ def convert_chat_messages_to_responses_input(
 
         if not content_items:
             continue
-        role_out = "assistant" if role == "assistant" else "user"
+        role_out = role if role in {"assistant", "developer", "system", "user"} else "user"
         input_items.append(
             {"type": "message", "role": role_out, "content": content_items},
         )

@@ -7,13 +7,17 @@ parse/reject correctly, and the model registry returns expected data.
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 from starlette.testclient import TestClient
 
 from gptmock.app import create_app
+from gptmock.core.settings import Settings
 from gptmock.schemas.requests import (
     ChatCompletionRequest,
     OllamaChatRequest,
+    OllamaGenerateRequest,
     OllamaShowRequest,
     ResponsesCreateRequest,
     TextCompletionRequest,
@@ -29,6 +33,22 @@ from gptmock.services.model_registry import (
 # ---------------------------------------------------------------------------
 # App bootstrap
 # ---------------------------------------------------------------------------
+
+
+def test_verbose_settings_enable_package_debug_logging() -> None:
+    package_logger = logging.getLogger("gptmock")
+    original_level = package_logger.level
+    original_handlers = list(package_logger.handlers)
+    try:
+        create_app(Settings(verbose=True))
+        assert package_logger.level == logging.DEBUG
+        assert any(
+            getattr(handler, "_gptmock_verbose_handler", False)
+            for handler in package_logger.handlers
+        )
+    finally:
+        package_logger.setLevel(original_level)
+        package_logger.handlers[:] = original_handlers
 
 
 @pytest.fixture(scope="module")
@@ -51,6 +71,10 @@ class TestAppBootstrap:
         resp = client.get("/")
         assert resp.status_code == 200
         assert resp.json() == {"status": "ok"}
+
+    def test_root_head_supports_ollama_cli_probe(self, client: TestClient) -> None:
+        resp = client.head("/")
+        assert resp.status_code == 200
 
     def test_models_endpoint(self, client: TestClient) -> None:
         resp = client.get("/v1/models")
@@ -83,11 +107,29 @@ class TestAppBootstrap:
         assert len(data["models"]) > 0
 
     def test_ollama_show_valid_model(self, client: TestClient) -> None:
-        resp = client.post("/api/show", json={"model": "gpt-5"})
+        resp = client.post("/api/show", json={"model": "gpt-5.4"})
         assert resp.status_code == 200
         data = resp.json()
         assert "details" in data
         assert "capabilities" in data
+        assert data["details"]["format"] == "remote"
+        assert data["model_info"]["gptmock.remote"] is True
+
+    def test_ollama_show_accepts_hidden_fast_alias(self, client: TestClient) -> None:
+        resp = client.post("/api/show", json={"model": "gpt-5.6-luna-fast"})
+        assert resp.status_code == 200
+        model_info = resp.json()["model_info"]
+        assert model_info["gptmock.upstream_model"] == "gpt-5.6-luna"
+        assert model_info["gptmock.request_overrides"] == {"service_tier": "priority"}
+
+    def test_ollama_show_accepts_cli_name_field(self, client: TestClient) -> None:
+        resp = client.post("/api/show", json={"name": "gpt-5.6-luna"})
+        assert resp.status_code == 200
+        assert resp.json()["model_info"]["gptmock.upstream_model"] == "gpt-5.6-luna"
+
+    def test_ollama_show_unknown_model(self, client: TestClient) -> None:
+        resp = client.post("/api/show", json={"model": "definitely-not-a-model"})
+        assert resp.status_code == 404
 
     def test_ollama_show_missing_model(self, client: TestClient) -> None:
         resp = client.post("/api/show", json={})
@@ -97,6 +139,23 @@ class TestAppBootstrap:
         """POST /api/show with empty string model returns 400."""
         resp = client.post("/api/show", json={"model": ""})
         assert resp.status_code == 400
+
+    def test_ollama_chat_rejects_unsupported_options_as_client_error(
+        self, client: TestClient,
+    ) -> None:
+        resp = client.post(
+            "/api/chat",
+            json={
+                "model": "gpt-5.6-luna",
+                "messages": [{"role": "user", "content": "hello"}],
+                "stream": False,
+                "options": {"temperature": 0.2},
+            },
+        )
+        assert resp.status_code == 400
+        assert resp.json() == {
+            "error": "Unsupported Ollama option(s): options.temperature",
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -136,6 +195,19 @@ class TestPydanticRequestModels:
         dump = req.model_dump()
         assert dump["temperature"] == 0.7
         assert dump["response_format"] == {"type": "json_object"}
+
+    def test_ollama_generate_request_preserves_native_fields(self) -> None:
+        req = OllamaGenerateRequest(
+            model="gpt-5.6-luna",
+            prompt="hello",
+            think="high",
+            options={"num_predict": 128},
+        )
+        assert req.prompt == "hello"
+        assert req.model_extra == {
+            "think": "high",
+            "options": {"num_predict": 128},
+        }
 
     def test_chat_completion_missing_model_rejects(self) -> None:
         with pytest.raises(Exception):  # noqa: B017
@@ -292,22 +364,18 @@ class TestModelRegistry:
     def test_get_openai_models_reasoning_per_family(self) -> None:
         models = {m["id"]: m for m in get_openai_models(expose_reasoning=False)}
 
-        assert models["gpt-5"]["reasoning"]["supported_efforts"] == ["minimal", "low", "medium", "high"]
-        assert models["gpt-5"]["reasoning"]["default_effort"] == "medium"
-
-        assert models["gpt-5.1"]["reasoning"]["supported_efforts"] == ["low", "medium", "high"]
-
         assert "xhigh" in models["gpt-5.4"]["reasoning"]["supported_efforts"]
         assert "minimal" not in models["gpt-5.4"]["reasoning"]["supported_efforts"]
-
-        assert models["gpt-5-codex"]["reasoning"]["supported_efforts"] == ["low", "medium", "high"]
+        assert models["gpt-5.6-luna"]["reasoning"]["supported_efforts"] == [
+            "none", "low", "medium", "high", "xhigh", "max",
+        ]
 
     def test_get_openai_models_reasoning_for_variants(self) -> None:
         models = {m["id"]: m for m in get_openai_models(expose_reasoning=True)}
 
-        gpt5_high = models["gpt-5-high"]["reasoning"]
-        assert gpt5_high["supported_efforts"] == ["minimal", "low", "medium", "high"]
-        assert gpt5_high["preset_effort"] == "high"
+        gpt54_high = models["gpt-5.4-high"]["reasoning"]
+        assert gpt54_high["supported_efforts"] == ["low", "medium", "high", "xhigh"]
+        assert gpt54_high["preset_effort"] == "high"
 
         gpt54_xhigh = models["gpt-5.4-xhigh"]["reasoning"]
         assert gpt54_xhigh["supported_efforts"] == ["low", "medium", "high", "xhigh"]
@@ -315,16 +383,12 @@ class TestModelRegistry:
 
     def test_get_openai_models_default_effort_reflects_setting(self) -> None:
         models_medium = {m["id"]: m for m in get_openai_models(default_effort="medium")}
-        assert models_medium["gpt-5"]["reasoning"]["default_effort"] == "medium"
+        assert models_medium["gpt-5.4"]["reasoning"]["default_effort"] == "medium"
 
         models_high = {m["id"]: m for m in get_openai_models(default_effort="high")}
-        assert models_high["gpt-5"]["reasoning"]["default_effort"] == "high"
         assert models_high["gpt-5.4"]["reasoning"]["default_effort"] == "high"
 
         models_xhigh = {m["id"]: m for m in get_openai_models(default_effort="xhigh")}
-        assert models_xhigh["gpt-5"]["reasoning"]["default_effort"] == "medium", (
-            "gpt-5 does not support xhigh; should fall back to medium"
-        )
         assert models_xhigh["gpt-5.4"]["reasoning"]["default_effort"] == "xhigh"
 
     def test_get_openai_models_endpoint_reflects_configured_default_effort(
@@ -334,8 +398,8 @@ class TestModelRegistry:
         assert resp.status_code == 200
         data = resp.json()
         models = {m["id"]: m for m in data["data"]}
-        assert models["gpt-5"]["reasoning"]["default_effort"] in {
-            "minimal", "low", "medium", "high",
+        assert models["gpt-5.4"]["reasoning"]["default_effort"] in {
+            "low", "medium", "high", "xhigh",
         }
 
     def test_strip_effort_suffix_handles_both_separators(self) -> None:
@@ -350,9 +414,9 @@ class TestModelRegistry:
     def test_variant_detection_requires_known_base(self) -> None:
         from gptmock.services.model_registry import _detect_preset_effort
 
-        assert _detect_preset_effort("gpt-5-high") == "high"
-        assert _detect_preset_effort("gpt-5_medium") == "medium"
-        assert _detect_preset_effort("gpt-5") is None
+        assert _detect_preset_effort("gpt-5.4-high") == "high"
+        assert _detect_preset_effort("gpt-5.4_medium") == "medium"
+        assert _detect_preset_effort("gpt-5.4") is None
         assert _detect_preset_effort("unknown-model-high") is None
 
     def test_allowed_efforts_handles_variant_ids(self) -> None:
@@ -371,14 +435,20 @@ class TestModelRegistry:
             assert isinstance(m, dict)
             assert "name" in m
             assert "model" in m
+            assert m["details"]["format"] == "remote"
+            assert m["size"] == 0
+            assert m["digest"] == ""
+            assert m["modified_at"] == "2026-09-05T00:00:00Z"
+            assert isinstance(m["remote_model"], str)
+            assert m["capabilities"] == ["completion", "tools", "thinking"]
 
-    def test_gpt5_in_model_list(self) -> None:
+    def test_rejected_models_are_not_advertised(self) -> None:
         models = get_model_list(expose_reasoning=False)
-        assert "gpt-5" in models, f"gpt-5 not in model list: {models}"
-
-    def test_codex_mini_in_model_list(self) -> None:
-        models = get_model_list(expose_reasoning=False)
-        assert "gpt-5.1-codex-mini" in models, f"gpt-5.1-codex-mini not in model list: {models}"
+        rejected = {
+            "gpt-5", "gpt-5.1", "gpt-5.2", "gpt-5-codex", "gpt-5.1-codex",
+            "gpt-5.1-codex-mini", "gpt-5.1-codex-max", "gpt-5.2-codex", "gpt-5.3-codex",
+        }
+        assert rejected.isdisjoint(models)
 
     def test_normalize_codex_mini_aliases(self) -> None:
         assert normalize_model_name("codex-mini") == "gpt-5.1-codex-mini"
@@ -390,41 +460,25 @@ class TestModelRegistry:
 class TestFastModelVariants:
     """Verify synthetic 'fast' aliases translate to base model + service_tier=priority."""
 
-    def test_fast_variants_registered_in_model_list(self) -> None:
+    def test_fast_variants_are_not_advertised(self) -> None:
         models = get_model_list(expose_reasoning=False)
         assert "gpt-5.5" in models
         assert "gpt-5.6" in models
-        assert "gpt-5.6-fast" in models
-        assert "gpt-5.6-pro" in models
         for family in ("sol", "terra", "luna"):
             assert f"gpt-5.6-{family}" in models
-            assert f"gpt-5.6-{family}-pro" in models
-            assert f"gpt-5.6-{family}-fast" in models
-        assert "gpt-5.4-fast" in models
-        assert "gpt-5.5-fast" in models
-        assert "gpt-5.4-mini-fast" in models
+        assert not any("-fast" in model for model in models)
 
-    def test_fast_variants_expose_reasoning_variants(self) -> None:
+    def test_fast_reasoning_variants_are_not_advertised(self) -> None:
         models = get_model_list(expose_reasoning=True)
-        for effort in ("low", "medium", "high", "xhigh"):
-            assert f"gpt-5.4-fast-{effort}" in models
-            assert f"gpt-5.5-fast-{effort}" in models
-            assert f"gpt-5.6-sol-fast-{effort}" in models
-            assert f"gpt-5.6-terra-fast-{effort}" in models
-            assert f"gpt-5.6-luna-fast-{effort}" in models
-            assert f"gpt-5.4-mini-fast-{effort}" in models
+        assert not any("-fast" in model for model in models)
 
-    def test_fast_variants_reasoning_metadata(self) -> None:
+    def test_verified_variants_reasoning_metadata(self) -> None:
         models = {m["id"]: m for m in get_openai_models(expose_reasoning=False)}
         expected_efforts = ["low", "medium", "high", "xhigh"]
+        gpt56_efforts = ["none", "low", "medium", "high", "xhigh", "max"]
         assert models["gpt-5.5"]["reasoning"]["supported_efforts"] == expected_efforts
         for family in ("sol", "terra", "luna"):
-            assert models[f"gpt-5.6-{family}"]["reasoning"]["supported_efforts"] == expected_efforts
-            assert models[f"gpt-5.6-{family}-pro"]["reasoning"]["supported_efforts"] == expected_efforts
-            assert models[f"gpt-5.6-{family}-fast"]["reasoning"]["supported_efforts"] == expected_efforts
-        assert models["gpt-5.4-fast"]["reasoning"]["supported_efforts"] == expected_efforts
-        assert models["gpt-5.5-fast"]["reasoning"]["supported_efforts"] == expected_efforts
-        assert models["gpt-5.4-mini-fast"]["reasoning"]["supported_efforts"] == expected_efforts
+            assert models[f"gpt-5.6-{family}"]["reasoning"]["supported_efforts"] == gpt56_efforts
 
     def test_normalize_fast_aliases(self) -> None:
         assert normalize_model_name("gpt-5.4-fast") == "gpt-5.4-fast"
@@ -436,16 +490,10 @@ class TestFastModelVariants:
         assert normalize_model_name("gpt-5.6") == "gpt-5.6"
         assert normalize_model_name("gpt5.6") == "gpt-5.6"
         assert normalize_model_name("gpt-5.6-latest") == "gpt-5.6"
-        assert normalize_model_name("gpt-5.6-pro") == "gpt-5.6-pro"
-        assert normalize_model_name("gpt5.6-pro") == "gpt-5.6-pro"
-        assert normalize_model_name("gpt-5.6-pro-latest") == "gpt-5.6-pro"
         for family in ("sol", "terra", "luna"):
             assert normalize_model_name(f"gpt-5.6-{family}") == f"gpt-5.6-{family}"
             assert normalize_model_name(f"gpt5.6-{family}") == f"gpt-5.6-{family}"
             assert normalize_model_name(f"gpt-5.6-{family}-latest") == f"gpt-5.6-{family}"
-            assert normalize_model_name(f"gpt-5.6-{family}-pro") == f"gpt-5.6-{family}-pro"
-            assert normalize_model_name(f"gpt5.6-{family}-pro") == f"gpt-5.6-{family}-pro"
-            assert normalize_model_name(f"gpt-5.6-{family}-pro-latest") == f"gpt-5.6-{family}-pro"
         assert normalize_model_name("gpt-5.5-fast") == "gpt-5.5-fast"
         assert normalize_model_name("gpt5.5-fast") == "gpt-5.5-fast"
         assert normalize_model_name("gpt-5.5-fast-latest") == "gpt-5.5-fast"
@@ -479,23 +527,15 @@ class TestFastModelVariants:
         assert resolve_upstream_model("gpt-5.6-fast") == ("gpt-5.6-sol", priority)
         assert resolve_upstream_model("gpt-5.6-sol-fast") == ("gpt-5.6-sol", priority)
         assert resolve_upstream_model("gpt-5.6-terra-fast") == ("gpt-5.6-terra", priority)
-        assert resolve_upstream_model("gpt-5.6-luna-fast") == ("gpt-5.6-terra", priority)
+        assert resolve_upstream_model("gpt-5.6-luna-fast") == ("gpt-5.6-luna", priority)
         assert resolve_upstream_model("gpt-5.4-mini-fast") == ("gpt-5.4-mini", priority)
 
-    def test_resolve_upstream_model_for_pro_aliases(self) -> None:
-        from gptmock.services.model_registry import resolve_upstream_model
+    def test_apply_model_overrides_sets_service_tier(self) -> None:
+        payload = {"service_tier": "default"}
 
-        assert resolve_upstream_model("gpt-5.6-pro") == ("gpt-5.6-sol", {})
-        assert resolve_upstream_model("gpt-5.6-sol-pro") == ("gpt-5.6-sol", {})
-        assert resolve_upstream_model("gpt-5.6-terra-pro") == ("gpt-5.6-terra", {})
-        assert resolve_upstream_model("gpt-5.6-luna-pro") == ("gpt-5.6-terra", {})
+        apply_model_overrides(payload, {"service_tier": "priority"})
 
-    def test_apply_model_overrides_merges_reasoning(self) -> None:
-        payload = {"reasoning": {"effort": "high", "summary": "auto"}}
-
-        apply_model_overrides(payload, {"reasoning": {"mode": "pro"}})
-
-        assert payload["reasoning"] == {"effort": "high", "summary": "auto", "mode": "pro"}
+        assert payload["service_tier"] == "priority"
 
     def test_resolve_upstream_model_passes_through_regular_models(self) -> None:
         from gptmock.services.model_registry import resolve_upstream_model
@@ -504,8 +544,8 @@ class TestFastModelVariants:
         assert resolve_upstream_model("gpt-5.5") == ("gpt-5.5", {})
         assert resolve_upstream_model("gpt-5.6") == ("gpt-5.6-sol", {})
         for family in ("sol", "terra", "luna"):
-            expected = "gpt-5.6-terra" if family == "luna" else f"gpt-5.6-{family}"
-            assert resolve_upstream_model(f"gpt-5.6-{family}") == (expected, {})
+            model = f"gpt-5.6-{family}"
+            assert resolve_upstream_model(model) == (model, {})
         assert resolve_upstream_model("gpt-5.4-mini") == ("gpt-5.4-mini", {})
         assert resolve_upstream_model("gpt-5") == ("gpt-5", {})
         assert resolve_upstream_model("gpt-5.1-codex-max") == ("gpt-5.1-codex-max", {})
@@ -518,14 +558,13 @@ class TestFastModelVariants:
         fast_efforts = allowed_efforts_for_model("gpt-5.4-fast")
         gpt55_fast_efforts = allowed_efforts_for_model("gpt-5.5-fast")
         mini_fast_efforts = allowed_efforts_for_model("gpt-5.4-mini-fast")
+        gpt56_efforts = {"none", "low", "medium", "high", "xhigh", "max"}
         assert gpt55_efforts == base_efforts
-        assert allowed_efforts_for_model("gpt-5.6") == base_efforts
-        assert allowed_efforts_for_model("gpt-5.6-pro") == base_efforts
-        assert allowed_efforts_for_model("gpt-5.6-fast") == base_efforts
+        assert allowed_efforts_for_model("gpt-5.6") == gpt56_efforts
+        assert allowed_efforts_for_model("gpt-5.6-fast") == gpt56_efforts
         for family in ("sol", "terra", "luna"):
-            assert allowed_efforts_for_model(f"gpt-5.6-{family}") == base_efforts
-            assert allowed_efforts_for_model(f"gpt-5.6-{family}-pro") == base_efforts
-            assert allowed_efforts_for_model(f"gpt-5.6-{family}-fast") == base_efforts
+            assert allowed_efforts_for_model(f"gpt-5.6-{family}") == gpt56_efforts
+            assert allowed_efforts_for_model(f"gpt-5.6-{family}-fast") == gpt56_efforts
         assert fast_efforts == base_efforts
         assert gpt55_fast_efforts == base_efforts
         assert mini_fast_efforts == base_efforts
@@ -544,40 +583,27 @@ class TestFastModelVariants:
         assert get_instructions_for_model("gpt-5.4-fast", base, codex) == base
         assert get_instructions_for_model("gpt-5.5-fast", base, codex) == base
         assert get_instructions_for_model("gpt-5.6-sol-fast", base, codex) == base
-        assert get_instructions_for_model("gpt-5.6-sol-pro", base, codex) == base
         assert get_instructions_for_model("gpt-5.4-mini-fast", base, codex) == base
 
-    def test_fast_variants_served_by_openai_models_endpoint(self, client: TestClient) -> None:
+    def test_fast_variants_hidden_from_openai_models_endpoint(self, client: TestClient) -> None:
         resp = client.get("/v1/models")
         assert resp.status_code == 200
         ids = {m["id"] for m in resp.json()["data"]}
         assert "gpt-5.5" in ids
         assert "gpt-5.6" in ids
-        assert "gpt-5.6-fast" in ids
-        assert "gpt-5.6-pro" in ids
         for family in ("sol", "terra", "luna"):
             assert f"gpt-5.6-{family}" in ids
-            assert f"gpt-5.6-{family}-pro" in ids
-            assert f"gpt-5.6-{family}-fast" in ids
-        assert "gpt-5.4-fast" in ids
-        assert "gpt-5.5-fast" in ids
-        assert "gpt-5.4-mini-fast" in ids
+        assert not any("-fast" in model_id for model_id in ids)
 
-    def test_fast_variants_served_by_ollama_tags_endpoint(self, client: TestClient) -> None:
+    def test_fast_variants_hidden_from_ollama_tags_endpoint(self, client: TestClient) -> None:
         resp = client.get("/api/tags")
         assert resp.status_code == 200
         names = {m["name"] for m in resp.json()["models"]}
         assert "gpt-5.5" in names
         assert "gpt-5.6" in names
-        assert "gpt-5.6-fast" in names
-        assert "gpt-5.6-pro" in names
         for family in ("sol", "terra", "luna"):
             assert f"gpt-5.6-{family}" in names
-            assert f"gpt-5.6-{family}-pro" in names
-            assert f"gpt-5.6-{family}-fast" in names
-        assert "gpt-5.4-fast" in names
-        assert "gpt-5.5-fast" in names
-        assert "gpt-5.4-mini-fast" in names
+        assert not any("-fast" in name for name in names)
 
 
 # ---------------------------------------------------------------------------
@@ -586,9 +612,9 @@ class TestFastModelVariants:
 
 
 class TestCORSConfig:
-    """Verify CORS middleware is applied."""
+    """Verify browser access is opt-in."""
 
-    def test_cors_headers_present(self, client: TestClient) -> None:
+    def test_cors_headers_absent_by_default(self, client: TestClient) -> None:
         resp = client.options(
             "/v1/models",
             headers={
@@ -596,7 +622,34 @@ class TestCORSConfig:
                 "Access-Control-Request-Method": "GET",
             },
         )
-        assert "access-control-allow-origin" in resp.headers
+        assert "access-control-allow-origin" not in resp.headers
+
+    def test_configured_cors_origin_is_allowed(self) -> None:
+        app = create_app(Settings(cors_origins="http://localhost:3000"))
+        with TestClient(app, raise_server_exceptions=False) as configured_client:
+            resp = configured_client.options(
+                "/v1/models",
+                headers={
+                    "Origin": "http://localhost:3000",
+                    "Access-Control-Request-Method": "GET",
+                },
+            )
+        assert resp.headers["access-control-allow-origin"] == "http://localhost:3000"
+
+
+class TestProxyAuthentication:
+    def test_api_key_protects_model_routes_but_not_health(self) -> None:
+        app = create_app(Settings(api_key="proxy-secret"))
+        with TestClient(app, raise_server_exceptions=False) as protected_client:
+            assert protected_client.get("/health").status_code == 200
+            rejected = protected_client.get("/v1/models")
+            accepted = protected_client.get(
+                "/v1/models",
+                headers={"Authorization": "Bearer proxy-secret"},
+            )
+        assert rejected.status_code == 401
+        assert rejected.headers["www-authenticate"] == "Bearer"
+        assert accepted.status_code == 200
 
 
 # ---------------------------------------------------------------------------

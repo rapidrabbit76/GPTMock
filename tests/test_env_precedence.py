@@ -13,6 +13,8 @@ from unittest.mock import patch
 
 import pytest
 
+from gptmock.core.settings import Settings
+
 # ---------------------------------------------------------------------------
 # _env_with_legacy
 # ---------------------------------------------------------------------------
@@ -295,3 +297,42 @@ class TestArgparseEnvDefaults:
         assert args.reasoning_compat == "standard"
         assert args.expose_reasoning_models is False
         assert args.enable_web_search is False
+
+
+def test_output_token_policy_defaults_to_omit(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("GPTMOCK_OUTPUT_TOKEN_POLICY", raising=False)
+    assert Settings(_env_file=None).output_token_policy == "omit"
+
+
+def test_output_token_policy_reads_canonical_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GPTMOCK_OUTPUT_TOKEN_POLICY", "reject")
+    assert Settings(_env_file=None).output_token_policy == "reject"
+
+
+def test_verbose_serve_enables_debug_payload_logging(monkeypatch: pytest.MonkeyPatch) -> None:
+    from gptmock import cli
+
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(cli, "read_auth_file", lambda: {"tokens": {"access_token": "test"}})
+    monkeypatch.setattr("uvicorn.run", lambda *args, **kwargs: captured.update(kwargs))
+
+    result = cli.cmd_serve(
+        host="127.0.0.1",
+        port=8000,
+        verbose=True,
+        verbose_obfuscation=False,
+        reasoning_effort="medium",
+        reasoning_summary="auto",
+        reasoning_compat="standard",
+        debug_model=None,
+        expose_reasoning_models=False,
+        default_web_search=False,
+        output_token_policy="omit",
+        cors_origins="",
+    )
+
+    assert result == 0
+    assert captured["log_level"] == "debug"
+    assert captured["host"] == "127.0.0.1"
+    assert captured["port"] == 8000

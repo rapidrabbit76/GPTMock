@@ -16,6 +16,7 @@ from gptmock.core.constants import (
     SSE_REASONING_TEXT_DELTA,
     SSE_RESPONSE_COMPLETED,
     SSE_RESPONSE_FAILED,
+    SSE_RESPONSE_INCOMPLETE,
 )
 from gptmock.core.logging import log_json
 from gptmock.core.settings import Settings
@@ -40,6 +41,7 @@ from gptmock.services.reasoning import (
     extract_reasoning_from_model_name,
 )
 from gptmock.services.upstream import UpstreamError, send_upstream_request
+from gptmock.services.upstream_errors import extract_upstream_error_message
 
 logger = logging.getLogger(__name__)
 
@@ -63,8 +65,8 @@ class ChatCompletionContext:
     tools_responses: list[dict[str, Any]] | None = None
     tool_choice: Any = "auto"
     parallel_tool_calls: bool = False
-    had_responses_tools: bool = False
     text_format: dict[str, Any] | None = None
+    upstream_options: dict[str, Any] = field(default_factory=dict)
     input_items: list[dict[str, Any]] = field(default_factory=list)
     tool_name_reverse_map: dict[str, str] = field(default_factory=dict)
     access_token: str | None = None
@@ -87,6 +89,53 @@ class ChatCompletionError(Exception):
         self.error_data = error_data or {}
 
 
+def supplied_parameters(
+    payload: dict[str, Any],
+    parameter_names: tuple[str, ...],
+) -> tuple[str, ...]:
+    """Return explicitly supplied, non-null parameter names in stable order."""
+    return tuple(
+        parameter
+        for parameter in parameter_names
+        if parameter in payload and payload[parameter] is not None
+    )
+
+
+def apply_output_token_policy(
+    payload: dict[str, Any],
+    settings: Settings,
+    parameter_names: tuple[str, ...],
+    *,
+    event_logger: logging.Logger | None = None,
+) -> tuple[str, ...]:
+    """Apply the configured policy for limits unsupported by ChatGPT upstream."""
+    supplied = supplied_parameters(payload, parameter_names)
+    if not supplied:
+        return ()
+
+    if settings.output_token_policy == "reject":
+        parameter = supplied[0]
+        message = f"Unsupported parameter: {parameter}"
+        raise ChatCompletionError(
+            message,
+            status_code=400,
+            error_data={
+                "error": {
+                    "message": message,
+                    "type": "invalid_request_error",
+                    "param": parameter,
+                    "code": "unsupported_parameter",
+                },
+            },
+        )
+
+    (event_logger or logger).warning(
+        "Ignoring output token limit(s) unsupported by ChatGPT upstream: %s",
+        ", ".join(supplied),
+    )
+    return supplied
+
+
 async def _call_upstream(
     model: str,
     input_items: list[dict[str, Any]],
@@ -102,6 +151,7 @@ async def _call_upstream(
     parallel_tool_calls: bool = False,
     reasoning_param: dict[str, Any] | None = None,
     text_format: dict[str, Any] | None = None,
+    request_options: dict[str, Any] | None = None,
 ) -> httpx.Response:
     """Build a Responses-API payload and send it upstream."""
     include: list[str] = []
@@ -118,13 +168,15 @@ async def _call_upstream(
         "input": input_items,
         "tools": tools or [],
         "tool_choice": tool_choice
-        if tool_choice in ("auto", "none") or isinstance(tool_choice, dict)
+        if tool_choice in ("auto", "none", "required") or isinstance(tool_choice, dict)
         else "auto",
         "parallel_tool_calls": bool(parallel_tool_calls),
         "store": False,
         "stream": True,
         "prompt_cache_key": session_id,
     }
+    if request_options:
+        payload.update(request_options)
     if include:
         payload["include"] = include
     if reasoning_param is not None:
@@ -232,19 +284,6 @@ def _extract_and_normalize(ctx: ChatCompletionContext) -> None:
             error_data=err_data,
         )
 
-    sys_idx = next(
-        (
-            i
-            for i, m in enumerate(messages)
-            if isinstance(m, dict) and m.get("role") == "system"
-        ),
-        None,
-    )
-    if isinstance(sys_idx, int):
-        sys_msg = messages.pop(sys_idx)
-        content = sys_msg.get("content") if isinstance(sys_msg, dict) else ""
-        messages.insert(0, {"role": "user", "content": content})
-
     ctx.messages = messages
     ctx.is_stream = (
         bool(payload.get("stream", False))
@@ -256,7 +295,16 @@ def _extract_and_normalize(ctx: ChatCompletionContext) -> None:
         stream_options_obj if isinstance(stream_options_obj, dict) else {}
     )
     ctx.include_usage = bool(stream_options.get("include_usage", False))
-    ctx.model = normalize_model_name(ctx.requested_model, ctx.settings.debug_model)
+    ctx.model = normalize_requested_model(ctx.requested_model, ctx.settings.debug_model)
+
+
+def normalize_requested_model(name: str | None, debug_model: str | None = None) -> str:
+    try:
+        return normalize_model_name(name, debug_model)
+    except ValueError as exc:
+        raise ChatCompletionError(str(exc), status_code=400, error_data={"error": {
+            "message": str(exc), "param": "model", "code": "invalid_model",
+        }}) from exc
 
 
 def _derive_policies(ctx: ChatCompletionContext) -> None:
@@ -264,17 +312,20 @@ def _derive_policies(ctx: ChatCompletionContext) -> None:
     settings = ctx.settings
 
     model_reasoning = extract_reasoning_from_model_name(ctx.requested_model)
-    reasoning_overrides = (
-        payload.get("reasoning")
-        if isinstance(payload.get("reasoning"), dict)
-        else model_reasoning
-    )
-    ctx.reasoning_param = build_reasoning_param(
-        settings.reasoning_effort,
-        settings.reasoning_summary,
-        reasoning_overrides,
-        allowed_efforts=allowed_efforts_for_model(ctx.model),
-    )
+    reasoning_overrides = _chat_reasoning_overrides(payload, model_reasoning)
+    try:
+        ctx.reasoning_param = build_reasoning_param(
+            settings.reasoning_effort,
+            settings.reasoning_summary,
+            reasoning_overrides,
+            allowed_efforts=allowed_efforts_for_model(ctx.model),
+        )
+    except ValueError as exc:
+        raise ChatCompletionError(
+            str(exc),
+            status_code=400,
+            error_data={"error": {"message": str(exc), "code": "INVALID_REASONING"}},
+        ) from exc
 
     ctx.instructions = get_instructions_for_model(
         ctx.model,
@@ -293,15 +344,12 @@ def _derive_policies(ctx: ChatCompletionContext) -> None:
             else None
         )
         name = function_obj.get("name") if function_obj is not None else None
-        if isinstance(name, str) and name in tool_name_map and function_obj is not None:
-            ctx.tool_choice = {
-                **ctx.tool_choice,
-                "function": {**function_obj, "name": tool_name_map[name]},
-            }
+        if ctx.tool_choice.get("type") == "function" and isinstance(name, str):
+            ctx.tool_choice = {"type": "function", "name": tool_name_map.get(name, name)}
     ctx.parallel_tool_calls = bool(payload.get("parallel_tool_calls", False))
+    ctx.upstream_options = _chat_upstream_options(payload)
 
     extra_tools: list[dict[str, Any]] = []
-    ctx.had_responses_tools = False
     responses_tools_payload = (
         payload.get("responses_tools")
         if isinstance(payload.get("responses_tools"), list)
@@ -351,7 +399,6 @@ def _derive_policies(ctx: ChatCompletionContext) -> None:
                         },
                     },
                 )
-            ctx.had_responses_tools = True
             ctx.tools_responses = (ctx.tools_responses or []) + extra_tools
 
     responses_tool_choice = payload.get("responses_tool_choice")
@@ -367,6 +414,10 @@ def _build_upstream_request(ctx: ChatCompletionContext) -> None:
     ctx.text_format = _build_text_format(payload.get("response_format"))
 
     ctx.input_items = convert_chat_messages_to_responses_input(ctx.messages)
+    name_map = {original: short for short, original in ctx.tool_name_reverse_map.items()}
+    for item in ctx.input_items:
+        if item.get("type") == "function_call" and item.get("name") in name_map:
+            item["name"] = name_map[item["name"]]
     prompt = payload.get("prompt")
     if not ctx.input_items and isinstance(prompt, str) and prompt.strip():
         ctx.input_items = [
@@ -376,6 +427,69 @@ def _build_upstream_request(ctx: ChatCompletionContext) -> None:
                 "content": [{"type": "input_text", "text": prompt}],
             },
         ]
+
+
+def _chat_upstream_options(payload: dict[str, Any]) -> dict[str, Any]:
+    """Map supported Chat Completions options to the upstream Responses request."""
+    options: dict[str, Any] = {}
+    for key in (
+        "metadata",
+        "previous_response_id",
+        "prompt_cache_retention",
+        "safety_identifier",
+        "service_tier",
+        "truncation",
+    ):
+        if key in payload and payload[key] is not None:
+            options[key] = payload[key]
+    return options
+
+
+def _chat_reasoning_overrides(
+    payload: dict[str, Any],
+    model_reasoning: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Normalize Chat Completions reasoning fields without hiding conflicts."""
+    reasoning = payload.get("reasoning")
+    explicit_reasoning = isinstance(reasoning, dict)
+    overrides = dict(reasoning) if explicit_reasoning else {}
+
+    effort = payload.get("reasoning_effort")
+    if effort is None:
+        if overrides:
+            return overrides
+        return dict(model_reasoning) if isinstance(model_reasoning, dict) else None
+    if not isinstance(effort, str):
+        raise ChatCompletionError(
+            "reasoning_effort must be a string",
+            status_code=400,
+            error_data={
+                "error": {
+                    "message": "reasoning_effort must be a string",
+                    "type": "invalid_request_error",
+                    "param": "reasoning_effort",
+                    "code": "invalid_parameter",
+                },
+            },
+        )
+
+    nested_effort = overrides.get("effort") if explicit_reasoning else None
+    if nested_effort is not None and nested_effort != effort:
+        message = "Conflicting reasoning effort values"
+        raise ChatCompletionError(
+            message,
+            status_code=400,
+            error_data={
+                "error": {
+                    "message": message,
+                    "type": "invalid_request_error",
+                    "param": "reasoning_effort",
+                    "code": "conflicting_parameters",
+                },
+            },
+        )
+    overrides["effort"] = effort
+    return overrides
 
 
 async def _authenticate(ctx: ChatCompletionContext) -> None:
@@ -430,6 +544,7 @@ async def _call_upstream_with_context(
         parallel_tool_calls=ctx.parallel_tool_calls,
         reasoning_param=ctx.reasoning_param,
         text_format=ctx.text_format,
+        request_options=ctx.upstream_options,
     )
 
 
@@ -440,53 +555,8 @@ async def _read_upstream_error_body(upstream: httpx.Response) -> Any:
     except Exception:
         logger.debug("Failed to read upstream error response", exc_info=True)
         return {"raw": getattr(upstream, "text", "unknown error")}
-
-
-def _extract_upstream_error_message(err_body: Any) -> Any:
-    return (err_body.get("error", {}) or {}).get("message", "Upstream error")
-
-
-async def _retry_without_extra_tools(
-    ctx: ChatCompletionContext,
-    err_body: Any,
-) -> httpx.Response:
-    if ctx.settings.verbose:
-        logger.debug(
-            "[Passthrough] Upstream rejected tools; retrying without extra tools (args redacted)",
-        )
-
-    base_tools_only, tool_name_map = convert_tools_with_mapping(ctx.payload.get("tools"))
-    safe_choice = ctx.payload.get("tool_choice", "auto")
-    if isinstance(safe_choice, dict):
-        function_obj: dict[str, Any] | None = (
-            safe_choice.get("function") if isinstance(safe_choice.get("function"), dict) else None
-        )
-        name = function_obj.get("name") if function_obj is not None else None
-        if isinstance(name, str) and name in tool_name_map and function_obj is not None:
-            safe_choice = {
-                **safe_choice,
-                "function": {**function_obj, "name": tool_name_map[name]},
-            }
-    upstream = await _call_upstream_with_context(
-        ctx,
-        instructions=ctx.settings.base_instructions,
-        tools=base_tools_only,
-        tool_choice=safe_choice,
-    )
-    if upstream.status_code < 400:
-        return upstream
-
-    message = _extract_upstream_error_message(err_body)
-    raise ChatCompletionError(
-        message,
-        status_code=upstream.status_code,
-        error_data={
-            "error": {
-                "message": message,
-                "code": "RESPONSES_TOOLS_REJECTED",
-            },
-        },
-    )
+    finally:
+        await upstream.aclose()
 
 
 async def _send_upstream(ctx: ChatCompletionContext) -> httpx.Response:
@@ -500,12 +570,12 @@ async def _send_upstream(ctx: ChatCompletionContext) -> httpx.Response:
         return upstream
 
     err_body = await _read_upstream_error_body(upstream)
-    if ctx.had_responses_tools:
-        return await _retry_without_extra_tools(ctx, err_body)
-
     if ctx.settings.verbose:
         logger.debug("Upstream error status=%s", upstream.status_code)
-    message = _extract_upstream_error_message(err_body)
+    message = extract_upstream_error_message(
+        err_body,
+        status_code=upstream.status_code,
+    )
     raise ChatCompletionError(
         message,
         status_code=upstream.status_code,
@@ -637,16 +707,16 @@ def _handle_chat_sse_event(
                         reasoning_summary_text,
                         reasoning_full_text,
                         message,
-                        False,
+                        True,
                     )
         return (
             full_text,
             reasoning_summary_text,
             reasoning_full_text,
             "response.failed",
-            False,
+            True,
         )
-    if kind == SSE_RESPONSE_COMPLETED:
+    if kind in (SSE_RESPONSE_COMPLETED, SSE_RESPONSE_INCOMPLETE):
         return full_text, reasoning_summary_text, reasoning_full_text, None, True
     return full_text, reasoning_summary_text, reasoning_full_text, None, False
 
@@ -663,6 +733,7 @@ async def _collect_chat_sse_events(
     str | None,
     dict[str, int] | None,
     list[dict[str, Any]],
+    dict[str, Any],
 ]:
     full_text = ""
     reasoning_summary_text = ""
@@ -672,6 +743,8 @@ async def _collect_chat_sse_events(
     error_message: str | None = None
     usage_obj: dict[str, int] | None = None
     annotations: list[dict[str, Any]] = []
+    response_metadata: dict[str, Any] = {}
+    terminal_received = False
 
     try:
         async for raw in upstream.aiter_lines():
@@ -679,6 +752,8 @@ async def _collect_chat_sse_events(
             if not data:
                 continue
             if data == "[DONE]":
+                if not terminal_received and not error_message:
+                    error_message = "Upstream stream ended before a terminal response event"
                 break
 
             try:
@@ -690,6 +765,18 @@ async def _collect_chat_sse_events(
             response_id, usage_obj = _update_chat_sse_metadata(
                 evt, response_id, usage_obj,
             )
+            kind = evt.get("type")
+            response = evt.get("response")
+            if isinstance(response, dict):
+                for key in ("model", "service_tier", "status", "incomplete_details"):
+                    if response.get(key) is not None:
+                        response_metadata[key] = response[key]
+            if kind in (
+                SSE_RESPONSE_COMPLETED,
+                SSE_RESPONSE_FAILED,
+                SSE_RESPONSE_INCOMPLETE,
+            ):
+                terminal_received = True
             (
                 full_text,
                 reasoning_summary_text,
@@ -712,6 +799,9 @@ async def _collect_chat_sse_events(
     finally:
         await upstream.aclose()
 
+    if not terminal_received and not error_message:
+        error_message = "Upstream stream ended before a terminal response event"
+
     return (
         full_text,
         reasoning_summary_text,
@@ -721,6 +811,7 @@ async def _collect_chat_sse_events(
         error_message,
         usage_obj,
         annotations,
+        response_metadata,
     )
 
 
@@ -738,6 +829,7 @@ async def _adapt_non_streaming_response(
         error_message,
         usage_obj,
         annotations,
+        response_metadata,
     ) = await _collect_chat_sse_events(upstream, ctx.tool_name_reverse_map)
 
     if error_message:
@@ -763,13 +855,17 @@ async def _adapt_non_streaming_response(
             ctx.settings.reasoning_compat,
         )
 
-    finish_reason = "tool_calls" if tool_calls else "stop"
+    if tool_calls and response_metadata.get("status") == "incomplete":
+        raise ChatCompletionError("Upstream response incomplete during a tool call; do not execute partial arguments", status_code=502)
+    finish_reason = _finish_reason(response_metadata)
+    if tool_calls and finish_reason == "stop":
+        finish_reason = "tool_calls"
 
-    completion = {
+    completion: dict[str, Any] = {
         "id": response_id or "chatcmpl",
         "object": "chat.completion",
         "created": created,
-        "model": ctx.requested_model or ctx.model,
+        "model": response_metadata.get("model") or ctx.requested_model or ctx.model,
         "choices": [
             {
                 "index": 0,
@@ -779,11 +875,21 @@ async def _adapt_non_streaming_response(
         ],
         **({"usage": usage_obj} if usage_obj else {}),
     }
+    if response_metadata.get("service_tier") is not None:
+        completion["service_tier"] = response_metadata["service_tier"]
 
     if ctx.settings.verbose:
         log_json("OUT chat completion", completion, logger=logger.debug)
 
     return completion, False
+
+
+def _finish_reason(response_metadata: dict[str, Any]) -> str:
+    if response_metadata.get("status") != "incomplete":
+        return "stop"
+    details = response_metadata.get("incomplete_details")
+    reason = details.get("reason") if isinstance(details, dict) else None
+    return "content_filter" if reason == "content_filter" else "length"
 
 
 async def process_chat_completion(
@@ -795,6 +901,11 @@ async def process_chat_completion(
     is_stream: bool | None = None,
 ) -> tuple[Any, bool]:
     """Process chat completion request."""
+    apply_output_token_policy(
+        payload,
+        settings,
+        ("max_completion_tokens", "max_tokens", "max_output_tokens"),
+    )
     ctx = ChatCompletionContext(
         payload=payload,
         settings=settings,
@@ -836,6 +947,11 @@ async def process_text_completion(
     Raises:
         ChatCompletionError: On processing errors
     """
+    apply_output_token_policy(
+        payload,
+        settings,
+        ("max_tokens", "max_completion_tokens", "max_output_tokens"),
+    )
     # 1. Extract request parameters
     requested_model = payload.get("model")
     prompt = payload.get("prompt")
@@ -853,7 +969,7 @@ async def process_text_completion(
     include_usage = bool(stream_options.get("include_usage", False))
 
     # 2. Normalize model
-    model = normalize_model_name(requested_model, settings.debug_model)
+    model = normalize_requested_model(requested_model, settings.debug_model)
 
     # 3. Convert to messages format
     messages = [{"role": "user", "content": prompt or ""}]
@@ -861,17 +977,20 @@ async def process_text_completion(
 
     # 4. Build reasoning parameters
     model_reasoning = extract_reasoning_from_model_name(requested_model)
-    reasoning_overrides = (
-        payload.get("reasoning")
-        if isinstance(payload.get("reasoning"), dict)
-        else model_reasoning
-    )
-    reasoning_param = build_reasoning_param(
-        settings.reasoning_effort,
-        settings.reasoning_summary,
-        reasoning_overrides,
-        allowed_efforts=allowed_efforts_for_model(model),
-    )
+    reasoning_overrides = _chat_reasoning_overrides(payload, model_reasoning)
+    try:
+        reasoning_param = build_reasoning_param(
+            settings.reasoning_effort,
+            settings.reasoning_summary,
+            reasoning_overrides,
+            allowed_efforts=allowed_efforts_for_model(model),
+        )
+    except ValueError as exc:
+        raise ChatCompletionError(
+            str(exc),
+            status_code=400,
+            error_data={"error": {"message": str(exc), "code": "INVALID_REASONING"}},
+        ) from exc
 
     # 5. Get instructions
     instructions = get_instructions_for_model(
@@ -908,6 +1027,7 @@ async def process_text_completion(
             settings=settings,
             instructions=instructions,
             reasoning_param=reasoning_param,
+            request_options=_chat_upstream_options(payload),
         )
     except ChatCompletionError:
         raise
@@ -920,7 +1040,10 @@ async def process_text_completion(
         except Exception:
             logger.debug("Failed to read upstream error response", exc_info=True)
             err_body = {"raw": getattr(upstream, "text", "unknown error")}
-        message = _extract_upstream_error_message(err_body)
+        message = extract_upstream_error_message(
+            err_body,
+            status_code=upstream.status_code,
+        )
         raise ChatCompletionError(
             message,
             status_code=upstream.status_code,
@@ -954,6 +1077,11 @@ async def process_text_completion(
     full_text = ""
     response_id = "cmpl"
     usage_obj: dict[str, int] | None = None
+    response_model: str | None = None
+    service_tier: str | None = None
+    finish_reason = "stop"
+    terminal_received = False
+    error_message: str | None = None
 
     try:
         async for raw_line in upstream.aiter_lines():
@@ -969,6 +1097,8 @@ async def process_text_completion(
             data = line[len("data: ") :].strip()
             if not data or data == "[DONE]":
                 if data == "[DONE]":
+                    if not terminal_received:
+                        error_message = "Upstream stream ended before a terminal response event"
                     break
                 continue
             try:
@@ -977,10 +1107,14 @@ async def process_text_completion(
                 logger.debug("Failed to parse SSE event JSON", exc_info=True)
                 continue
 
-            if isinstance(evt.get("response"), dict) and isinstance(
-                evt["response"].get("id"), str,
-            ):
-                response_id = evt["response"].get("id") or response_id
+            response = evt.get("response")
+            if isinstance(response, dict):
+                if isinstance(response.get("id"), str):
+                    response_id = response.get("id") or response_id
+                if isinstance(response.get("model"), str) and response.get("model"):
+                    response_model = response["model"]
+                if isinstance(response.get("service_tier"), str):
+                    service_tier = response["service_tier"]
             mu = extract_usage(evt)
             if mu:
                 usage_obj = mu
@@ -988,25 +1122,49 @@ async def process_text_completion(
             if kind == SSE_OUTPUT_TEXT_DELTA:
                 full_text += evt.get("delta") or ""
             elif kind == SSE_RESPONSE_COMPLETED:
+                terminal_received = True
+                break
+            elif kind == SSE_RESPONSE_INCOMPLETE:
+                terminal_received = True
+                metadata = response if isinstance(response, dict) else {"status": "incomplete"}
+                finish_reason = _finish_reason({**metadata, "status": "incomplete"})
+                break
+            elif kind == SSE_RESPONSE_FAILED:
+                terminal_received = True
+                response = evt.get("response")
+                error = response.get("error") if isinstance(response, dict) else None
+                message = error.get("message") if isinstance(error, dict) else None
+                error_message = message if isinstance(message, str) and message else "response.failed"
                 break
     finally:
         await upstream.aclose()
 
-    completion = {
+    if not terminal_received and not error_message:
+        error_message = "Upstream stream ended before a terminal response event"
+    if error_message:
+        raise ChatCompletionError(
+            error_message,
+            status_code=502,
+            error_data={"error": {"message": error_message}},
+        )
+
+    completion: dict[str, Any] = {
         "id": response_id or "cmpl",
         "object": "text_completion",
         "created": created,
-        "model": requested_model or model,
+        "model": response_model or requested_model or model,
         "choices": [
             {
                 "index": 0,
                 "text": full_text,
-                "finish_reason": "stop",
+                "finish_reason": finish_reason,
                 "logprobs": None,
             },
         ],
         **({"usage": usage_obj} if usage_obj else {}),
     }
+    if service_tier is not None:
+        completion["service_tier"] = service_tier
 
     if settings.verbose:
         log_json("OUT text completion", completion, logger=logger.debug)

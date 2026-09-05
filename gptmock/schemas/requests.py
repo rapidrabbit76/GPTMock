@@ -55,3 +55,13 @@ class OllamaChatRequest(BaseModel):
     model: str
     messages: list[dict[str, Any]]
     stream: bool = True
+
+
+class OllamaGenerateRequest(BaseModel):
+    """POST /api/generate request body."""
+
+    model_config = ConfigDict(extra="allow")
+
+    model: str
+    prompt: str = ""
+    stream: bool = True

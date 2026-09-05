@@ -110,6 +110,7 @@ def convert_ollama_messages(
     out: list[dict[str, Any]] = []
     msgs = messages if isinstance(messages, list) else []
     pending_call_ids: list[str] = []
+    pending_names: dict[str, list[str]] = {}
     call_counter = 0
     for m in msgs:
         if not isinstance(m, dict):
@@ -132,14 +133,24 @@ def convert_ollama_messages(
             )
             if tcs:
                 nm["tool_calls"] = tcs
+                for call in tcs:
+                    pending_names.setdefault(call["function"]["name"], []).append(call["id"])
 
         if role == "tool":
             tci = m.get("tool_call_id") or m.get("id")
             if not isinstance(tci, str) or not tci:
-                if pending_call_ids:
-                    tci = pending_call_ids.pop(0)
+                named_calls = pending_names.get(m.get("tool_name"), [])
+                if named_calls:
+                    tci = named_calls[0]
+                elif pending_call_ids:
+                    tci = pending_call_ids[0]
             if isinstance(tci, str) and tci:
                 nm["tool_call_id"] = tci
+                if tci in pending_call_ids:
+                    pending_call_ids.remove(tci)
+                for ids in pending_names.values():
+                    if tci in ids:
+                        ids.remove(tci)
 
             if not parts and isinstance(content, str):
                 nm["content"] = content
@@ -159,17 +170,23 @@ def _normalize_single_ollama_tool(t: dict[str, Any]) -> dict[str, Any] | None:
         if not name:
             return None
         parameters = fn.get("parameters")
+        normalized_function: dict[str, Any] = {
+            "name": name,
+            "description": fn.get("description") or "",
+            "parameters": (
+                parameters
+                if isinstance(parameters, dict)
+                else {"type": "object", "properties": {}}
+            ),
+        }
+        strict = fn.get("strict")
+        if not isinstance(strict, bool):
+            strict = t.get("strict")
+        if isinstance(strict, bool):
+            normalized_function["strict"] = strict
         return {
             "type": "function",
-            "function": {
-                "name": name,
-                "description": fn.get("description") or "",
-                "parameters": (
-                    parameters
-                    if isinstance(parameters, dict)
-                    else {"type": "object", "properties": {}}
-                ),
-            },
+            "function": normalized_function,
         }
     name = t.get("name") if isinstance(t.get("name"), str) else None
     if name:

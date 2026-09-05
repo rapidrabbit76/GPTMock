@@ -122,6 +122,7 @@ class _ShutdownServer:
     def __init__(self) -> None:
         self.shutdown_called = False
         self.exit_code = 1
+        self.state = "expected-state"
 
     def shutdown(self) -> None:
         self.shutdown_called = True
@@ -261,6 +262,17 @@ class TestAuthHelpers:
         (tmp_path / "auth.json").write_text("not-json")
         assert read_auth_file() is None
 
+    def test_explicit_gptmock_home_never_falls_back_to_codex(self, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+        gptmock_home = tmp_path / "gptmock"
+        codex_home = tmp_path / "codex"
+        gptmock_home.mkdir()
+        codex_home.mkdir()
+        (codex_home / "auth.json").write_text(json.dumps({"tokens": {"access_token": "codex-token"}}))
+        monkeypatch.setenv("GPTMOCK_HOME", str(gptmock_home))
+        monkeypatch.setenv("CODEX_HOME", str(codex_home))
+        monkeypatch.delenv("CHATGPT_LOCAL_HOME", raising=False)
+        assert read_auth_file() is None
+
     def test_write_auth_file_fails_when_home_is_a_file(self, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
         bad_home = tmp_path / "not-a-dir"
         bad_home.write_text("x")
@@ -283,16 +295,6 @@ class TestOAuthHelpers:
         assert qs["client_id"] == ["client-1"]
         assert qs["state"] == ["abc123"]
         assert qs["code_challenge_method"] == ["S256"]
-
-    def test_maybe_obtain_api_key_without_org_or_project_returns_setup_url(self) -> None:
-        server = OAuthHTTPServer.__new__(OAuthHTTPServer)
-        token_data = TokenData(id_token="idtok", access_token="acctok", refresh_token="reftok", account_id="acct")
-        api_key, success_url = server.maybe_obtain_api_key({}, {"chatgpt_plan_type": "plus"}, token_data)
-        assert api_key is None
-        assert success_url is not None and success_url.startswith("http://localhost:1455/success?")
-        qs = parse_qs(urlparse(success_url).query)
-        assert qs["id_token"] == ["idtok"]
-        assert qs["plan_type"] == ["plus"]
 
     def test_persist_auth_writes_expected_file(self, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
         monkeypatch.setenv("GPTMOCK_HOME", str(tmp_path))
@@ -337,19 +339,29 @@ class TestOAuthHelpers:
         handler.do_GET()
         assert handler.error_calls == [(400, "Missing auth code")]
 
+        handler = _make_oauth_handler("/auth/callback?code=abc")
+        handler._shutdown = lambda: setattr(handler.server, "shutdown_called", True)
+        handler.do_GET()
+        assert handler.error_calls == [(400, "Invalid OAuth state")]
+
+        handler = _make_oauth_handler("/auth/callback?code=abc&state=wrong")
+        handler._shutdown = lambda: setattr(handler.server, "shutdown_called", True)
+        handler.do_GET()
+        assert handler.error_calls == [(400, "Invalid OAuth state")]
+
         handler = _make_oauth_handler("/nope")
         handler._shutdown = lambda: setattr(handler.server, "shutdown_called", True)
         handler.do_GET()
         assert handler.error_calls == [(404, "Not Found")]
 
     def test_oauth_handler_exchange_code_and_persist_failure_paths(self) -> None:
-        handler = _make_oauth_handler("/auth/callback?code=abc")
+        handler = _make_oauth_handler("/auth/callback?code=abc&state=expected-state")
         handler._shutdown = lambda: setattr(handler.server, "shutdown_called", True)
         handler._exchange_code = lambda code: (_ for _ in ()).throw(RuntimeError("boom"))
         handler.do_GET()
         assert handler.error_calls == [(500, "Token exchange failed: boom")]
 
-        handler = _make_oauth_handler("/auth/callback?code=abc")
+        handler = _make_oauth_handler("/auth/callback?code=abc&state=expected-state")
         handler._shutdown_after_delay = lambda seconds=2.0: setattr(handler.server, "shutdown_called", True)
         token_data = TokenData(id_token="id", access_token="access", refresh_token="refresh", account_id="acct")
         bundle = AuthBundle(api_key="sk", token_data=token_data, last_refresh="2026-03-08T12:00:00Z")
@@ -420,6 +432,15 @@ class TestResponsesHelpers:
                 "result": "iVBORw0KGgo=",
             }
         ]
+
+        incomplete = CollectorState()
+        assert _handle_response_terminal(
+            incomplete,
+            {"response": {"status": "incomplete"}},
+            "response.incomplete",
+        ) is True
+        assert incomplete.status == "incomplete"
+        assert incomplete.error_message is None
 
         state = CollectorState(
             response_id="resp_1",
@@ -527,21 +548,28 @@ class TestMessageTransforms:
 
     def test_convert_chat_messages_to_responses_input_handles_tools_images_and_text(self) -> None:
         messages = [
-            {"role": "system", "content": "skip"},
+            {"role": "system", "content": "system guidance"},
+            {"role": "developer", "content": "developer guidance"},
             {"role": "user", "content": [{"type": "text", "text": "hello"}, {"type": "image_url", "image_url": {"url": "https://x/y.png"}}]},
             {"role": "assistant", "tool_calls": [{"id": "call_1", "type": "function", "function": {"name": "lookup", "arguments": "{}"}}], "content": "done"},
             {"role": "tool", "tool_call_id": "call_1", "content": [{"text": "tool output"}]},
         ]
         converted = convert_chat_messages_to_responses_input(messages)
-        assert converted[0]["type"] == "message"
-        assert converted[0]["content"][0] == {"type": "input_text", "text": "hello"}
-        assert converted[1] == {"type": "function_call", "name": "lookup", "arguments": "{}", "call_id": "call_1"}
-        assert converted[2]["content"][0] == {"type": "output_text", "text": "done"}
-        assert converted[3] == {"type": "function_call_output", "call_id": "call_1", "output": "tool output"}
+        assert converted[0]["role"] == "system"
+        assert converted[0]["content"][0] == {"type": "input_text", "text": "system guidance"}
+        assert converted[1]["role"] == "developer"
+        assert converted[2]["content"][0] == {"type": "input_text", "text": "hello"}
+        assert converted[3] == {"type": "function_call", "name": "lookup", "arguments": "{}", "call_id": "call_1"}
+        assert converted[4]["content"][0] == {"type": "output_text", "text": "done"}
+        assert converted[5] == {"type": "function_call_output", "call_id": "call_1", "output": "tool output"}
 
     def test_convert_tools_chat_to_responses_normalizes_invalid_parameters(self) -> None:
         tools = [{"type": "function", "function": {"name": "lookup", "description": "d", "parameters": "bad"}}]
         assert convert_tools_chat_to_responses(tools) == [{"type": "function", "name": "lookup", "description": "d", "strict": False, "parameters": {"type": "object", "properties": {}}}]
+
+    def test_convert_tools_preserves_strict_mode(self) -> None:
+        tools = [{"type": "function", "function": {"name": "lookup", "strict": True, "parameters": {"type": "object"}}}]
+        assert convert_tools_chat_to_responses(tools)[0]["strict"] is True
 
 
 class TestOllamaTransforms:
@@ -570,6 +598,10 @@ class TestOllamaTransforms:
             {"type": "function", "function": {"name": "lookup", "description": "d", "parameters": {"type": "object"}}},
             {"type": "function", "function": {"name": "ping", "description": "p", "parameters": {"type": "object", "properties": {}}}},
         ]
+
+    def test_normalize_ollama_tools_preserves_strict_mode(self) -> None:
+        tools = [{"type": "function", "function": {"name": "lookup", "strict": True}}]
+        assert normalize_ollama_tools(tools)[0]["function"]["strict"] is True
 
 
 class TestSSEHelpers:
@@ -1113,7 +1145,8 @@ class TestSSEHelpers:
             "data: [DONE]",
         ])
         frames = [frame async for frame in sse_translate_text(cast(Any, upstream), model="gpt-5", created=123)]
-        assert any(b'"finish_reason": "stop"' in frame for frame in frames)
+        assert any(b'"error"' in frame for frame in frames)
+        assert not any(b'"finish_reason": "stop"' in frame for frame in frames)
         assert upstream.closed is True
 
 
@@ -1125,11 +1158,17 @@ class TestReasoningHelpers:
         assert allowed_efforts_for_model("gpt-5.1") == {"low", "medium", "high"}
         assert allowed_efforts_for_model("gpt-5.1-codex-max") == {"low", "medium", "high", "xhigh"}
         assert allowed_efforts_for_model("gpt-5.1-codex-mini") == {"low", "medium", "high"}
+        assert allowed_efforts_for_model("gpt-5.6-luna") == {"none", "low", "medium", "high", "xhigh", "max"}
 
     def test_build_reasoning_param_applies_valid_overrides_and_fallbacks(self) -> None:
-        assert build_reasoning_param("bad", "bad", None, allowed_efforts={"low", "medium"}) == {"effort": "medium", "summary": "auto"}
+        with pytest.raises(ValueError, match="Unsupported reasoning effort"):
+            build_reasoning_param("bad", "bad", None, allowed_efforts={"low", "medium"})
         assert build_reasoning_param("medium", "auto", {"effort": "low", "summary": "detailed"}, allowed_efforts={"low", "medium"}) == {"effort": "low", "summary": "detailed"}
         assert build_reasoning_param("medium", "none", None) == {"effort": "medium"}
+        assert build_reasoning_param("medium", "auto", {"effort": "max"}, allowed_efforts={"medium", "max"}) == {"effort": "max", "summary": "auto"}
+        for mode in ("pro", "standard"):
+            with pytest.raises(ValueError, match="Unsupported reasoning mode"):
+                build_reasoning_param("medium", "auto", {"mode": mode})
 
     def test_apply_reasoning_to_message_handles_all_compat_modes(self) -> None:
         assert apply_reasoning_to_message({"content": "hello"}, "sum", "full", "o3")["reasoning"]["content"][0]["text"] == "sum\n\nfull"

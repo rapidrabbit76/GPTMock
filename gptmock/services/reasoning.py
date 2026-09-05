@@ -4,22 +4,20 @@ from typing import Any
 
 DEFAULT_REASONING_EFFORTS: set[str] = {"minimal", "low", "medium", "high", "xhigh"}
 
-EFFORT_ORDER: tuple[str, ...] = ("minimal", "low", "medium", "high", "xhigh")
+EFFORT_ORDER: tuple[str, ...] = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
+
+_MODEL_IDS_ENDING_IN_EFFORT_WORDS: frozenset[str] = frozenset({"gpt-5.1-codex-max"})
 
 GPT56_REASONING_MODELS: frozenset[str] = frozenset(
     {
         "gpt-5.6",
         "gpt-5.6-fast",
-        "gpt-5.6-pro",
         "gpt-5.6-sol",
         "gpt-5.6-sol-fast",
-        "gpt-5.6-sol-pro",
         "gpt-5.6-terra",
         "gpt-5.6-terra-fast",
-        "gpt-5.6-terra-pro",
         "gpt-5.6-luna",
         "gpt-5.6-luna-fast",
-        "gpt-5.6-luna-pro",
     },
 )
 
@@ -31,6 +29,8 @@ def sort_efforts(efforts: set[str] | list[str]) -> list[str]:
 
 def strip_effort_suffix(model: str) -> str:
     base = model.split(":", 1)[0]
+    if base in _MODEL_IDS_ENDING_IN_EFFORT_WORDS:
+        return base
     for sep in ("-", "_"):
         for effort in EFFORT_ORDER:
             suffix = f"{sep}{effort}"
@@ -44,8 +44,10 @@ def allowed_efforts_for_model(model: str | None) -> set[str]:
     if not raw:
         return DEFAULT_REASONING_EFFORTS
     normalized = strip_effort_suffix(raw)
+    if normalized in {"gpt-6-astra", "gpt-6-astra-fast"}:
+        return {"low", "medium", "high", "xhigh", "max"}
     if normalized in GPT56_REASONING_MODELS:
-        return {"low", "medium", "high", "xhigh"}
+        return {"none", "low", "medium", "high", "xhigh", "max"}
     if normalized.startswith(("gpt-5.5", "gpt-5.4", "gpt-5.3", "gpt-5.2")):
         return {"low", "medium", "high", "xhigh"}
     if normalized.startswith("gpt-5.1-codex-max"):
@@ -71,18 +73,27 @@ def build_reasoning_param(
 
     valid_efforts = allowed_efforts or DEFAULT_REASONING_EFFORTS
     valid_summaries = {"auto", "concise", "detailed", "none"}
-
     if isinstance(overrides, dict):
-        o_eff = str(overrides.get("effort", "")).strip().lower()
-        o_sum = str(overrides.get("summary", "")).strip().lower()
-        if o_eff in valid_efforts and o_eff:
+        raw_effort = overrides.get("effort")
+        raw_summary = overrides.get("summary")
+        raw_mode = overrides.get("mode")
+        o_eff = raw_effort.strip().lower() if isinstance(raw_effort, str) else ""
+        o_sum = raw_summary.strip().lower() if isinstance(raw_summary, str) else ""
+        o_mode = raw_mode.strip().lower() if isinstance(raw_mode, str) else ""
+        if o_eff:
+            if o_eff not in valid_efforts:
+                raise ValueError(f"Unsupported reasoning effort: {o_eff}")
             effort = o_eff
-        if o_sum in valid_summaries and o_sum:
+        if o_sum:
+            if o_sum not in valid_summaries:
+                raise ValueError(f"Unsupported reasoning summary: {o_sum}")
             summary = o_sum
+        if raw_mode is not None:
+            raise ValueError(f"Unsupported reasoning mode: {o_mode or raw_mode}")
     if effort not in valid_efforts:
-        effort = "medium"
+        raise ValueError(f"Unsupported reasoning effort: {effort}")
     if summary not in valid_summaries:
-        summary = "auto"
+        raise ValueError(f"Unsupported reasoning summary: {summary}")
 
     reasoning: dict[str, Any] = {"effort": effort}
     if summary != "none":
@@ -151,23 +162,18 @@ def extract_reasoning_from_model_name(model: str | None) -> dict[str, Any] | Non
     s = model.strip().lower()
     if not s:
         return None
-    efforts = {"minimal", "low", "medium", "high", "xhigh"}
+    efforts = set(EFFORT_ORDER)
 
     if ":" in s:
         maybe = s.rsplit(":", 1)[-1].strip()
         if maybe in efforts:
             return {"effort": maybe}
 
+    if s in _MODEL_IDS_ENDING_IN_EFFORT_WORDS:
+        return None
     for sep in ("-", "_"):
-        if s.endswith(sep + "minimal"):
-            return {"effort": "minimal"}
-        if s.endswith(sep + "low"):
-            return {"effort": "low"}
-        if s.endswith(sep + "medium"):
-            return {"effort": "medium"}
-        if s.endswith(sep + "high"):
-            return {"effort": "high"}
-        if s.endswith(sep + "xhigh"):
-            return {"effort": "xhigh"}
+        for effort in EFFORT_ORDER:
+            if s.endswith(sep + effort):
+                return {"effort": effort}
 
     return None
