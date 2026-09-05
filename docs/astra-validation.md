@@ -60,14 +60,15 @@ starting a listening GPTMock server. All 16 final cases passed:
 
 Non-streaming system-prompt checks require the `OK` marker specified only in the
 system message. Successful responses retain `gpt-6-astra` and the upstream tier
-`default`. These checks exercise GPTMock's HTTP formats; the OpenCode and Ollama
-CLI programs were not rerun for Astra.
+`default`. These initial checks exercise GPTMock's HTTP formats. Subsequent
+OpenCode 1.17.18 and native Ollama Python SDK 0.6.2 tests also passed; see
+[pre-PR validation](pr-validation.md). The Ollama CLI itself was not rerun.
 
 ## Repository and Docker validation
 
 - Unit/regression coverage checks discovery, efforts, aliases, exact model
   routing, system-prompt adaptation, strict tools, and actual model/tier output.
-- Ruff passed. The deterministic pytest suite reported 299 passed and 114
+- Ruff passed. The final deterministic pytest suite reported 335 passed and 114
   skipped; its live integration tests remain opt-in.
 - `uv build` produced the wheel and source distribution.
 - `docker-compose.yml` matches upstream `88f1ba9f08` exactly (Git blob
@@ -76,5 +77,13 @@ CLI programs were not rerun for Astra.
 - The previous hardened configuration is preserved separately as
   `docker-compose.local.yml`. Both configurations pass Compose validation
   (the original is checked with `--no-env-resolution` because `.env` is local).
-- The Docker engine is stopped, so no Astra container build or runtime test is
-  claimed. Earlier Docker tests apply to the earlier revision, not this one.
+- The updated Docker image built successfully and passed non-root, read-only,
+  authentication, CORS, model discovery, storage-permission, and refresh-lock
+  smoke checks. A loopback-bound CLI server returned the expected HTTP results.
+  A synthetic root-owned mounted credential store reproduced the migration
+  failure and succeeded after ownership repair. These are container/runtime
+  checks, not a fresh interactive OAuth login or Docker-hosted live model test.
+
+`gpt-6-astra-max` has been removed as a model alias and returns HTTP 400 before
+upstream access. Request `gpt-6-astra` with explicit reasoning effort `max`
+instead; that combination remains live-verified.

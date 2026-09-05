@@ -9,6 +9,7 @@ import httpx
 
 from gptmock.core.constants import CHATGPT_RESPONSES_URL
 from gptmock.core.logging import log_json
+from gptmock.infra.limits import record_rate_limits_from_response
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +120,9 @@ async def send_upstream_request(
             json=payload,
             timeout=600.0,
         )
-        return await http_client.send(req, stream=True)
+        response = await http_client.send(req, stream=True)
+        record_rate_limits_from_response(response)
+        return response
     except httpx.RequestError as e:
         raise UpstreamError(
             f"Upstream ChatGPT request failed: {e}",

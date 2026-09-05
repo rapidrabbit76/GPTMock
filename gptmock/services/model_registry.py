@@ -57,6 +57,10 @@ FAST_SERVICE_TIER: str = "priority"
 
 
 def normalize_model_name(name: str | None, debug_model: str | None = None) -> str:
+    raw = name if isinstance(name, str) else ""
+    raw = raw.strip().lower().split(":", 1)[0].replace("_", "-").replace("gpt6-", "gpt-6-")
+    if raw in {"gpt-6-astra-max", "gpt-6-astra-fast-max"}:
+        raise ValueError("Removed model alias: use gpt-6-astra with reasoning.effort='max' (or reasoning_effort='max')")
     if isinstance(debug_model, str) and debug_model.strip():
         return debug_model.strip()
     if not isinstance(name, str) or not name.strip():
@@ -191,7 +195,7 @@ def get_model_list(
     for base, efforts in MODEL_GROUPS:
         model_ids.append(base)
         if expose_reasoning:
-            model_ids.extend([f"{base}-{effort}" for effort in efforts])
+            model_ids.extend(f"{base}-{effort}" for effort in efforts if not (base == "gpt-6-astra" and effort == "max"))
 
     return model_ids
 

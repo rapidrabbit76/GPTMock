@@ -1145,7 +1145,8 @@ class TestSSEHelpers:
             "data: [DONE]",
         ])
         frames = [frame async for frame in sse_translate_text(cast(Any, upstream), model="gpt-5", created=123)]
-        assert any(b'"finish_reason": "stop"' in frame for frame in frames)
+        assert any(b'"error"' in frame for frame in frames)
+        assert not any(b'"finish_reason": "stop"' in frame for frame in frames)
         assert upstream.closed is True
 
 

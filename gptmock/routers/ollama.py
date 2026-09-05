@@ -22,6 +22,7 @@ from gptmock.services.model_registry import (
     get_ollama_models,
     resolve_upstream_model,
 )
+from gptmock.services.ollama_tools import accumulate_tool_deltas, native_tool_calls
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +93,7 @@ def _build_openai_payload(ollama_payload: dict[str, Any], model: str) -> dict[st
             openai_payload["tools"] = openai_tools
 
     tool_choice = ollama_payload.get("tool_choice", "auto")
-    if tool_choice in ("auto", "none", "required"):
+    if tool_choice in ("auto", "none", "required") or isinstance(tool_choice, dict):
         openai_payload["tool_choice"] = tool_choice
 
     parallel_tool_calls = bool(ollama_payload.get("parallel_tool_calls", False))
@@ -156,6 +157,7 @@ async def _convert_openai_to_ollama_stream(
     service_tier: str | None = None
     done_reason: str | None = None
     terminal_seen = False
+    pending_tools: dict[int, dict[str, Any]] = {}
     try:
         async for sse_chunk in response:
             if not sse_chunk.startswith(b"data: "):
@@ -164,6 +166,8 @@ async def _convert_openai_to_ollama_stream(
             json_bytes = sse_chunk[6:].strip()
 
             if json_bytes == b"[DONE]":
+                if done_reason is None:
+                    break
                 terminal_seen = True
                 done_chunk = {
                     "model": response_model,
@@ -173,6 +177,15 @@ async def _convert_openai_to_ollama_stream(
                     "message": {"role": "assistant", "content": ""},
                     "done": True,
                 }
+                if pending_tools:
+                    if done_reason != "tool_calls":
+                        yield (json.dumps({"error": "Upstream tool call did not complete"}) + "\n").encode()
+                        break
+                    try:
+                        done_chunk["message"]["tool_calls"] = native_tool_calls([pending_tools[k] for k in sorted(pending_tools)])
+                    except ChatCompletionError as exc:
+                        yield (json.dumps({"error": exc.message}) + "\n").encode()
+                        break
                 if done_reason is not None:
                     done_chunk["done_reason"] = done_reason
                 if service_tier is not None:
@@ -201,15 +214,15 @@ async def _convert_openai_to_ollama_stream(
                     reasoning = delta.get("reasoning_content") or delta.get("reasoning")
                     tool_calls = delta.get("tool_calls")
 
-                    if content or reasoning or tool_calls:
+                    if isinstance(tool_calls, list):
+                        accumulate_tool_deltas(pending_tools, tool_calls)
+                    if content or reasoning:
                         message: dict[str, Any] = {
                             "role": "assistant",
                             "content": content,
                         }
                         if isinstance(reasoning, str) and reasoning:
                             message["thinking"] = reasoning
-                        if isinstance(tool_calls, list) and tool_calls:
-                            message["tool_calls"] = tool_calls
                         ollama_chunk = {
                             "model": response_model,
                             "created_at": datetime.datetime.now(
@@ -237,6 +250,9 @@ def _convert_openai_to_ollama_response(
     choice = response.get("choices", [{}])[0]
     source_message = choice.get("message", {})
     message = dict(source_message) if isinstance(source_message, dict) else {}
+    message["content"] = message.get("content") or ""
+    if message.get("tool_calls"):
+        message["tool_calls"] = native_tool_calls(message["tool_calls"])
     reasoning = message.pop("reasoning_content", None) or message.pop("reasoning", None)
     if isinstance(reasoning, str) and reasoning:
         message["thinking"] = reasoning

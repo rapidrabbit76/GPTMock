@@ -295,7 +295,16 @@ def _extract_and_normalize(ctx: ChatCompletionContext) -> None:
         stream_options_obj if isinstance(stream_options_obj, dict) else {}
     )
     ctx.include_usage = bool(stream_options.get("include_usage", False))
-    ctx.model = normalize_model_name(ctx.requested_model, ctx.settings.debug_model)
+    ctx.model = normalize_requested_model(ctx.requested_model, ctx.settings.debug_model)
+
+
+def normalize_requested_model(name: str | None, debug_model: str | None = None) -> str:
+    try:
+        return normalize_model_name(name, debug_model)
+    except ValueError as exc:
+        raise ChatCompletionError(str(exc), status_code=400, error_data={"error": {
+            "message": str(exc), "param": "model", "code": "invalid_model",
+        }}) from exc
 
 
 def _derive_policies(ctx: ChatCompletionContext) -> None:
@@ -335,11 +344,8 @@ def _derive_policies(ctx: ChatCompletionContext) -> None:
             else None
         )
         name = function_obj.get("name") if function_obj is not None else None
-        if isinstance(name, str) and name in tool_name_map and function_obj is not None:
-            ctx.tool_choice = {
-                **ctx.tool_choice,
-                "function": {**function_obj, "name": tool_name_map[name]},
-            }
+        if ctx.tool_choice.get("type") == "function" and isinstance(name, str):
+            ctx.tool_choice = {"type": "function", "name": tool_name_map.get(name, name)}
     ctx.parallel_tool_calls = bool(payload.get("parallel_tool_calls", False))
     ctx.upstream_options = _chat_upstream_options(payload)
 
@@ -408,6 +414,10 @@ def _build_upstream_request(ctx: ChatCompletionContext) -> None:
     ctx.text_format = _build_text_format(payload.get("response_format"))
 
     ctx.input_items = convert_chat_messages_to_responses_input(ctx.messages)
+    name_map = {original: short for short, original in ctx.tool_name_reverse_map.items()}
+    for item in ctx.input_items:
+        if item.get("type") == "function_call" and item.get("name") in name_map:
+            item["name"] = name_map[item["name"]]
     prompt = payload.get("prompt")
     if not ctx.input_items and isinstance(prompt, str) and prompt.strip():
         ctx.input_items = [
@@ -845,7 +855,11 @@ async def _adapt_non_streaming_response(
             ctx.settings.reasoning_compat,
         )
 
-    finish_reason = "tool_calls" if tool_calls else _finish_reason(response_metadata)
+    if tool_calls and response_metadata.get("status") == "incomplete":
+        raise ChatCompletionError("Upstream response incomplete during a tool call; do not execute partial arguments", status_code=502)
+    finish_reason = _finish_reason(response_metadata)
+    if tool_calls and finish_reason == "stop":
+        finish_reason = "tool_calls"
 
     completion: dict[str, Any] = {
         "id": response_id or "chatcmpl",
@@ -955,7 +969,7 @@ async def process_text_completion(
     include_usage = bool(stream_options.get("include_usage", False))
 
     # 2. Normalize model
-    model = normalize_model_name(requested_model, settings.debug_model)
+    model = normalize_requested_model(requested_model, settings.debug_model)
 
     # 3. Convert to messages format
     messages = [{"role": "user", "content": prompt or ""}]
@@ -1013,6 +1027,7 @@ async def process_text_completion(
             settings=settings,
             instructions=instructions,
             reasoning_param=reasoning_param,
+            request_options=_chat_upstream_options(payload),
         )
     except ChatCompletionError:
         raise

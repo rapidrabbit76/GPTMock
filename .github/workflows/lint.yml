@@ -31,6 +31,17 @@ jobs:
       - name: Build Docker image
         run: docker build --tag gptmock-ci:verify --file docker/Dockerfile .
 
+      - name: Verify container storage and protocol contracts
+        run: >-
+          docker run --rm --read-only
+          --tmpfs /tmp:rw,noexec,nosuid,size=64m
+          --tmpfs /data:rw,nosuid,size=16m,uid=10001,gid=10001,mode=0700
+          --cap-drop ALL --security-opt no-new-privileges:true --pids-limit 64
+          --env GPTMOCK_HOME=/data
+          --volume "${{ github.workspace }}/tests:/checks:ro"
+          --entrypoint /app/.venv/bin/python
+          gptmock-ci:verify /checks/docker_smoke.py
+
       - name: Smoke test hardened Docker image
         run: >-
           docker run --rm --read-only

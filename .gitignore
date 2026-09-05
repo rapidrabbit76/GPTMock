@@ -28,6 +28,10 @@ dist/
 
 # Environment files
 .env
+.env.*
+!.env.example
+auth.json
+.config/gptmock/
 
 # uv lock file
 uv.lock

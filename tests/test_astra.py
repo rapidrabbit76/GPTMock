@@ -51,6 +51,12 @@ def test_astra_discovery_and_remote_metadata() -> None:
 @pytest.mark.parametrize("model", ["gpt-6-astra", "gpt-6-astra-fast"])
 def test_astra_effort_aliases_keep_the_concrete_model(model: str, effort: str) -> None:
     name = f"{model}-{effort}"
+    if effort == "max":
+        with pytest.raises(ValueError, match="Removed model alias"):
+            normalize_model_name(name)
+        assert name not in get_model_list(expose_reasoning=True)
+        assert allowed_efforts_for_model(model) == set(ASTRA_EFFORTS)
+        return
     assert normalize_model_name(name) == model
     assert normalize_model_name(model.replace("gpt-6", "gpt6")) == model
     assert normalize_model_name(f"{model}-latest") == model

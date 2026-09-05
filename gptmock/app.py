@@ -10,6 +10,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from gptmock.core.dependencies import get_settings
 from gptmock.core.settings import Settings
 from gptmock.routers.health import router as health_router
 from gptmock.routers.ollama import router as ollama_router
@@ -35,7 +36,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         Configured FastAPI application.
     """
     if settings is None:
-        from gptmock.core.dependencies import get_settings
         settings = get_settings()
 
     package_logger = logging.getLogger("gptmock")
@@ -58,6 +58,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         version="1.0.0",
         lifespan=lifespan,
     )
+    app.dependency_overrides[get_settings] = lambda: settings
 
     # Browser access is disabled by default. API clients do not require CORS.
     origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]

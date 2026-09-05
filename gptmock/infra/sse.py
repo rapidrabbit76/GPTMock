@@ -587,7 +587,7 @@ def _finalize_chat_stream(
         ctx.think_closed = True
 
     if not ctx.sent_stop_chunk:
-        terminal = "tool_calls" if ctx.tool_call_detected else finish_reason
+        terminal = "tool_calls" if ctx.tool_call_detected and finish_reason == "stop" else finish_reason
         out.append(ctx.chunk({}, finish_reason=terminal))
         ctx.sent_stop_chunk = True
 
@@ -631,6 +631,9 @@ def _handle_incomplete(
     evt: dict[str, Any],
     kind: str,
 ) -> list[bytes]:
+    if ctx.tool_call_detected:
+        return _handle_failed(ctx, {"response": {"error": {"message":
+            "Upstream response incomplete during a tool call; do not execute partial arguments"}}}, kind)
     return _finalize_chat_stream(ctx, evt, _incomplete_finish_reason(evt))
 
 
@@ -765,7 +768,7 @@ async def sse_translate_chat(
             yield b"data: [DONE]\n\n"
             ctx.done = True
     except (
-        httpx.ReadError,
+        httpx.HTTPError,
         httpx.RemoteProtocolError,
         ConnectionError,
         BrokenPipeError,
@@ -852,8 +855,9 @@ async def sse_translate_text(
             if kind == SSE_OUTPUT_TEXT_DELTA:
                 yield _chunk({"text": evt.get("delta") or ""})
             elif kind == SSE_OUTPUT_TEXT_DONE:
-                yield _chunk({"text": ""}, finish_reason="stop")
+                pass  # An output item ending is not a terminal response event.
             elif kind == SSE_RESPONSE_COMPLETED:
+                yield _chunk({"text": ""}, finish_reason="stop")
                 m = extract_usage(evt)
                 if m:
                     upstream_usage = m
@@ -890,7 +894,7 @@ async def sse_translate_text(
             yield f"data: {json.dumps({'error': {'message': message}})}\n\n".encode()
             yield b"data: [DONE]\n\n"
     except (
-        httpx.ReadError,
+        httpx.HTTPError,
         httpx.RemoteProtocolError,
         ConnectionError,
         BrokenPipeError,

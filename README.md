@@ -14,7 +14,7 @@
 </p>
 
 > **GPTMock is maintained by [rapidrabbit76](https://github.com/rapidrabbit76/GPTMock), building on [RayBytes/chatmock](https://github.com/RayBytes/chatmock).**
-> This contribution fork preserves the original project attribution, license, and upstream Docker Compose file.
+> The original project attribution, license, and upstream Docker Compose file are preserved.
 > The original Flask + synchronous `requests` stack has been replaced with **FastAPI + async `httpx`**, a layered architecture (router / service / infra), `pydantic-settings` configuration, and `uv` as the build system.
 
 Integration and coverage badges are updated from local runs. Refresh both by running `scripts/test.sh` with `GIST_TOKEN` available in your environment or `.env`.
@@ -44,14 +44,6 @@ The commands below explicitly select `docker-compose.local.yml`, a separate conf
 ```bash
 git clone https://github.com/rapidrabbit76/GPTMock.git
 cd GPTMock
-```
-
-Until the Astra and separate local Compose changes are merged upstream, check out the contribution branch while keeping `origin` pointed at the original project:
-
-```bash
-git remote add contribution https://github.com/binary1215/GPTMock.git
-git fetch contribution main
-git switch --create gptmock-contribution contribution/main
 docker compose -f docker-compose.local.yml build
 ```
 
@@ -174,9 +166,22 @@ gptmock info
 
 ## Usage Examples
 
+### Existing Docker volume migration
+
+The image runs as UID/GID `10001:10001`. The original Compose bind mount can contain files written by an older root-running image; image-layer ownership does not change host bind-mount permissions. Back up the credential directory and stop GPTMock before migrating it. On a Linux host, from the verified GPTMock checkout directory:
+
+```bash
+realpath ./volumes/gptmock
+sudo chown -R 10001:10001 ./volumes/gptmock
+sudo chmod 700 ./volumes/gptmock
+sudo chmod 600 ./volumes/gptmock/auth.json  # if credentials already exist
+```
+
+Apply ownership changes only to that credential directory, not the repository or a broader parent directory. Do not use world-writable permissions. Docker Desktop bind-mount permission behavior can differ; the separate local Compose named volume is the recommended fresh-install path. Login and serve check storage access before starting and report migration guidance if it is inaccessible. Concurrent credential refreshes sharing one auth home are serialized using a local filesystem lock; avoid simultaneous manual re-login and refresh or network filesystems without reliable locking.
+
 ### OpenCode
 
-Use OpenCode's Responses provider, not its Chat Completions compatibility provider. OpenCode 1.x configuration:
+Use OpenCode's Responses provider as the recommended configuration. OpenCode 1.x configuration:
 
 ```json
 {
@@ -211,7 +216,9 @@ Use OpenCode's Responses provider, not its Chat Completions compatibility provid
 
 Select `gptmock/gpt-5.6-luna` and the desired variant. OpenCode automatically sends `max_output_tokens`; GPTMock's default `omit` policy keeps the request compatible while explicitly reporting that the limit was not enforced.
 
-Do not use `@ai-sdk/openai-compatible` for OpenCode with this backend. That adapter calls `/v1/chat/completions` and sends OpenCode's system prompt as a `system` message. GPTMock preserves the role as requested, and the connected ChatGPT Codex backend currently rejects it with `System messages are not allowed`. The Responses adapter sends the prompt as `instructions` and was verified end to end.
+For `gpt-6-astra`, `@ai-sdk/openai-compatible` also works through GPTMock's Chat endpoint: text system messages are moved into upstream `instructions`. OpenCode 1.17.18 completed a real file-read tool call and its follow-up through both adapters. This Astra-specific compatibility does not establish Chat-adapter support for every other model. SDK versions may encode Responses prompts as developer input or as `instructions`.
+
+To request maximum Astra reasoning, select `gpt-6-astra` with `--variant max` (provider option `reasoningEffort: "max"`). `gpt-6-astra-max` is not a model: that removed alias returns HTTP 400 with migration guidance instead of silently selecting another effort. `max` remains supported through the reasoning parameter.
 
 ### Python (OpenAI SDK)
 
@@ -419,16 +426,19 @@ Rejected names are omitted from `/v1/models` and `/api/tags`. A client can still
 | Explicit `reasoning.mode` | Rejected locally; the connected ChatGPT Codex backend rejected Pro mode |
 | `max_output_tokens`, `max_completion_tokens`, or `max_tokens` | Not forwarded because the ChatGPT Codex upstream cannot enforce them. Default `omit` mode logs a warning and returns `X-GPTMock-Omitted-Parameters`; `reject` mode returns HTTP 400 |
 | `service_tier` or `*-fast` request | Requested tier is sent, while the tier actually returned by upstream is exposed unchanged |
-| `response.incomplete` | Preserved by `/v1/responses`; mapped to `length` or `content_filter` by Chat/Text/Ollama compatibility responses |
+| `response.incomplete` | Preserved by `/v1/responses`; mapped to `length` or `content_filter` for text. Incomplete tool responses produce an error in Chat/Ollama, not an executable `tool_calls` finish |
 | `response.failed` or interrupted SSE | Returned as an explicit error; an interrupted stream is never converted into a successful completion |
 | Upstream response model | Returned unchanged instead of being replaced with the requested alias |
 | Ollama model metadata | Marked as remote with zero/empty unknown size and digest values; no GGUF, Llama family, parameter size, quantization, or local evaluation timings are fabricated |
+| Ollama function calls | Arguments are native JSON objects. Streaming fragments are buffered until a valid tool-call finish; tool results are matched by name when supplied |
 
 The GPT-5.6 alias and reasoning-effort range follow [OpenAI's GPT-5.6 model guidance](https://developers.openai.com/api/docs/guides/latest-model). GPTMock's accepted options are narrower because they reflect what the ChatGPT Codex backend accepted during the dated probes above, not what may be available through a separate OpenAI API account.
 
 The default output-token policy is intentionally compatibility-oriented. OpenAI SDKs and agent frontends commonly add an output-token field even when the user did not set one. GPTMock accepts such requests but does not claim that the limit was honored: the field is omitted only from the upstream request, a warning names the omitted field, and the HTTP response exposes the same fact. Use `--output-token-policy reject` when failing closed is preferable to frontend compatibility.
 
 Docker-backed OpenCode 1.17.18 probes on 2026-09-03 verified direct Luna/Sol/Terra model selection, `none`/`high`/`max` reasoning variants, `service_tier="priority"` request preservation, streaming, tool definitions, `tool_choice="auto"`, and a complete function-call/result/final-answer loop. The upstream response still reported the actual tier as `default`. OpenCode did not emit configured `top_p`, `tool_choice="required"`, or strict tool schemas in these runs, so those semantics remain covered by GPTMock's direct request tests rather than claimed as OpenCode-verified.
+
+The 2026-09-05 pre-PR verification reran OpenCode against a temporary local server, including Astra, reasoning variants, tool round trips, and injected stream failures. Native Ollama SDK tool loops and direct strict/named-tool tests also passed. These live checks are separate from the Docker image/runtime checks; see [pre-PR validation](docs/pr-validation.md) for results, versions, and coverage boundaries.
 
 ### Ollama Request Semantics
 

@@ -435,7 +435,7 @@ async def test_tool_name_roundtrip_restores_original(monkeypatch: pytest.MonkeyP
     tool_delta = chunks[0]["choices"][0]["delta"]["tool_calls"][0]
     assert tool_delta["function"]["name"] == original_name
     assert captured_payloads[0]["tools"][0]["name"] == short_name
-    assert captured_payloads[0]["tool_choice"]["function"]["name"] == short_name
+    assert captured_payloads[0]["tool_choice"] == {"type": "function", "name": short_name}
 
     non_stream_events = [
         {"type": "response.output_item.done", "item": {"type": "function_call", "call_id": "call_rt_ns", "name": short_name, "arguments": '{"x":2}'}, "response": {"id": "resp_rt_nonstream"}},

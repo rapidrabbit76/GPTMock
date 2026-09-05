@@ -24,14 +24,17 @@ from gptmock.core.logging import log_json
 from gptmock.core.settings import Settings
 from gptmock.infra.auth import get_effective_chatgpt_auth
 from gptmock.infra.session import ensure_session_id
-from gptmock.services.chat import ChatCompletionError, apply_output_token_policy
+from gptmock.services.chat import ChatCompletionError, apply_output_token_policy, normalize_requested_model
 from gptmock.services.model_registry import (
     apply_model_overrides,
     get_instructions_for_model,
-    normalize_model_name,
     resolve_upstream_model,
 )
-from gptmock.services.reasoning import allowed_efforts_for_model, build_reasoning_param
+from gptmock.services.reasoning import (
+    allowed_efforts_for_model,
+    build_reasoning_param,
+    extract_reasoning_from_model_name,
+)
 from gptmock.services.upstream import UpstreamError, send_upstream_request
 from gptmock.services.upstream_errors import extract_upstream_error_message
 from gptmock.services.view_image import (
@@ -138,8 +141,18 @@ def _extract_output_text_from_response(response_obj: dict[str, Any] | None) -> s
     return "".join(chunks)
 
 
+def _stream_error_event(code: str, message: str, sequence_number: int) -> str:
+    # Responses uses top-level details; AI SDK 3.x also expects a nested error.
+    event = {
+        "type": "error", "code": code, "message": message, "sequence_number": sequence_number,
+        "error": {"type": "upstream_error", "code": code, "message": message},
+    }
+    return f"event: error\ndata: {json.dumps(event)}\n\n"
+
+
 async def _proxy_stream(upstream: httpx.Response) -> AsyncGenerator[str]:
     terminal_received = False
+    sequence_number = 0
     try:
         async for raw_line in upstream.aiter_lines():
             line = (
@@ -149,41 +162,33 @@ async def _proxy_stream(upstream: httpx.Response) -> AsyncGenerator[str]:
             )
             data = _parse_sse_data(line)
             if data == "[DONE]":
-                terminal_received = True
+                if not terminal_received:
+                    break
             elif data is not None:
                 try:
                     event = json.loads(data)
                 except (TypeError, ValueError):
                     event = None
+                if isinstance(event, dict) and isinstance(event.get("sequence_number"), int):
+                    sequence_number = max(sequence_number, event["sequence_number"] + 1)
                 if isinstance(event, dict) and event.get("type") in (
                     SSE_RESPONSE_COMPLETED,
                     SSE_RESPONSE_FAILED,
                     SSE_RESPONSE_INCOMPLETE,
+                    "error",
                 ):
                     terminal_received = True
             yield f"{line}\n"
         if not terminal_received:
-            err_event = {
-                "type": SSE_RESPONSE_FAILED,
-                "response": {
-                    "status": "failed",
-                    "error": {
-                        "message": "Upstream stream ended before a terminal response event",
-                    },
-                },
-            }
-            yield f"data: {json.dumps(err_event)}\n\n"
+            yield _stream_error_event(
+                "upstream_stream_incomplete", "Upstream stream ended before a terminal response event", sequence_number,
+            )
             yield "data: [DONE]\n\n"
     except httpx.HTTPError as exc:
         if not terminal_received:
-            err_event = {
-                "type": SSE_RESPONSE_FAILED,
-                "response": {
-                    "status": "failed",
-                    "error": {"message": f"Upstream stream interrupted: {exc}"},
-                },
-            }
-            yield f"data: {json.dumps(err_event)}\n\n"
+            yield _stream_error_event(
+                "upstream_stream_error", f"Upstream stream interrupted: {type(exc).__name__}", sequence_number,
+            )
             yield "data: [DONE]\n\n"
     finally:
         await upstream.aclose()
@@ -605,7 +610,7 @@ async def process_responses_api(
     requested_model = payload.get("model")
     requested_stream = bool(payload.get("stream", False))
 
-    model = normalize_model_name(requested_model, settings.debug_model)
+    model = normalize_requested_model(requested_model, settings.debug_model)
     base_instructions = get_instructions_for_model(
         model,
         settings.base_instructions,
@@ -633,9 +638,10 @@ async def process_responses_api(
             error_data={"error": {"message": "Responses input must be a string or an array of input items"}},
         )
 
-    reasoning_overrides = (
-        payload.get("reasoning") if isinstance(payload.get("reasoning"), dict) else None
-    )
+    reasoning_overrides = {
+        **(extract_reasoning_from_model_name(requested_model) or {}),
+        **(payload.get("reasoning") if isinstance(payload.get("reasoning"), dict) else {}),
+    }
     try:
         reasoning_param = build_reasoning_param(
             settings.reasoning_effort,

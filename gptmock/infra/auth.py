@@ -8,6 +8,10 @@ import json
 import os
 import secrets
 import sys
+import tempfile
+import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 import httpx
@@ -26,6 +30,18 @@ def get_home_dir() -> str:
     if not home:
         home = os.path.expanduser("~/.config/gptmock")
     return home
+
+
+def validate_auth_storage() -> None:
+    """Fail before login/serve when a migrated bind mount is inaccessible."""
+    home = get_home_dir()
+    os.makedirs(home, exist_ok=True)
+    path = os.path.join(home, "auth.json")
+    if os.path.exists(path):
+        with open(path, "rb"):
+            pass
+    with tempfile.TemporaryFile(dir=home):
+        pass
 
 
 def read_auth_file() -> dict[str, Any] | None:
@@ -100,7 +116,55 @@ def generate_pkce() -> PkceCodes:
     return PkceCodes(code_verifier=code_verifier, code_challenge=code_challenge)
 
 
+@asynccontextmanager
+async def _refresh_lock() -> AsyncIterator[None]:
+    """Serialize refreshes across event loops and processes sharing an auth home."""
+    os.makedirs(get_home_dir(), exist_ok=True)
+    with open(os.path.join(get_home_dir(), ".refresh.lock"), "a+b") as lock_file:
+        if os.name == "nt":
+            import msvcrt
+            if lock_file.seek(0, os.SEEK_END) == 0:
+                lock_file.write(b"\0")
+                lock_file.flush()
+        else:
+            import fcntl
+        acquired = False
+        deadline = time.monotonic() + 65
+        try:
+            while not acquired:
+                try:
+                    if os.name == "nt":
+                        lock_file.seek(0)
+                        msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+                    else:
+                        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    acquired = True
+                except (BlockingIOError, PermissionError):
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError("Timed out waiting for credential refresh") from None
+                    await asyncio.sleep(0.05)
+            yield
+        finally:
+            if acquired:
+                if os.name == "nt":
+                    lock_file.seek(0)
+                    msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
 async def load_chatgpt_tokens(ensure_fresh: bool = True) -> tuple[str | None, str | None, str | None]:
+    auth = await asyncio.to_thread(read_auth_file)
+    tokens = auth.get("tokens", {}) if isinstance(auth, dict) else {}
+    if (ensure_fresh and isinstance(tokens, dict) and tokens.get("refresh_token")
+            and _should_refresh_access_token(tokens.get("access_token"), auth.get("last_refresh"))):
+        async with _refresh_lock():
+            # A previous waiter may have rotated the token. Always re-read under the lock.
+            return await _load_chatgpt_tokens(ensure_fresh=True)
+    return await _load_chatgpt_tokens(ensure_fresh=False)
+
+
+async def _load_chatgpt_tokens(ensure_fresh: bool = True) -> tuple[str | None, str | None, str | None]:
     auth = await asyncio.to_thread(read_auth_file)
     if not isinstance(auth, dict):
         return None, None, None
