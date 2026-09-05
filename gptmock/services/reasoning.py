@@ -44,6 +44,8 @@ def allowed_efforts_for_model(model: str | None) -> set[str]:
     if not raw:
         return DEFAULT_REASONING_EFFORTS
     normalized = strip_effort_suffix(raw)
+    if normalized in {"gpt-6-astra", "gpt-6-astra-fast"}:
+        return {"low", "medium", "high", "xhigh", "max"}
     if normalized in GPT56_REASONING_MODELS:
         return {"none", "low", "medium", "high", "xhigh", "max"}
     if normalized.startswith(("gpt-5.5", "gpt-5.4", "gpt-5.3", "gpt-5.2")):

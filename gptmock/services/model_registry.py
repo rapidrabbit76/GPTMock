@@ -17,6 +17,7 @@ MODEL_GROUPS: list[tuple[str, list[str]]] = [
     ("gpt-5.6-sol", ["max", "xhigh", "high", "medium", "low", "none"]),
     ("gpt-5.6-terra", ["max", "xhigh", "high", "medium", "low", "none"]),
     ("gpt-5.6-luna", ["max", "xhigh", "high", "medium", "low", "none"]),
+    ("gpt-6-astra", ["max", "xhigh", "high", "medium", "low"]),
     ("gpt-5.4-mini", ["xhigh", "high", "medium", "low"]),
 ]
 
@@ -27,6 +28,7 @@ SYNTHETIC_MODEL_GROUPS: list[tuple[str, list[str]]] = [
     ("gpt-5.6-sol-fast", ["max", "xhigh", "high", "medium", "low", "none"]),
     ("gpt-5.6-terra-fast", ["max", "xhigh", "high", "medium", "low", "none"]),
     ("gpt-5.6-luna-fast", ["max", "xhigh", "high", "medium", "low", "none"]),
+    ("gpt-6-astra-fast", ["max", "xhigh", "high", "medium", "low"]),
     ("gpt-5.4-mini-fast", ["xhigh", "high", "medium", "low"]),
 ]
 
@@ -34,7 +36,7 @@ _BASE_MODEL_IDS: frozenset[str] = frozenset(
     base for base, _ in (*MODEL_GROUPS, *SYNTHETIC_MODEL_GROUPS)
 )
 
-MODEL_REGISTRY_VERIFIED_AT = "2026-08-26T00:00:00Z"
+MODEL_REGISTRY_VERIFIED_AT = "2026-09-05T00:00:00Z"
 
 UPSTREAM_MODEL_ALIASES: dict[str, str] = {
     "gpt-5.6": "gpt-5.6-sol",
@@ -47,6 +49,7 @@ FAST_MODEL_ALIASES: dict[str, str] = {
     "gpt-5.6-sol-fast": "gpt-5.6-sol",
     "gpt-5.6-terra-fast": "gpt-5.6-terra",
     "gpt-5.6-luna-fast": "gpt-5.6-luna",
+    "gpt-6-astra-fast": "gpt-6-astra",
     "gpt-5.4-mini-fast": "gpt-5.4-mini",
 }
 
@@ -112,6 +115,9 @@ def normalize_model_name(name: str | None, debug_model: str | None = None) -> st
         "gpt5.6-luna": "gpt-5.6-luna",
         "gpt-5.6-luna": "gpt-5.6-luna",
         "gpt-5.6-luna-latest": "gpt-5.6-luna",
+        "gpt6-astra": "gpt-6-astra",
+        "gpt-6-astra": "gpt-6-astra",
+        "gpt-6-astra-latest": "gpt-6-astra",
         "gpt5.4-mini": "gpt-5.4-mini",
         "gpt-5.4-mini": "gpt-5.4-mini",
         "gpt-5.4-mini-latest": "gpt-5.4-mini",
@@ -133,6 +139,9 @@ def normalize_model_name(name: str | None, debug_model: str | None = None) -> st
         "gpt5.6-luna-fast": "gpt-5.6-luna-fast",
         "gpt-5.6-luna-fast": "gpt-5.6-luna-fast",
         "gpt-5.6-luna-fast-latest": "gpt-5.6-luna-fast",
+        "gpt6-astra-fast": "gpt-6-astra-fast",
+        "gpt-6-astra-fast": "gpt-6-astra-fast",
+        "gpt-6-astra-fast-latest": "gpt-6-astra-fast",
         "gpt5.4-mini-fast": "gpt-5.4-mini-fast",
         "gpt-5.4-mini-fast": "gpt-5.4-mini-fast",
         "gpt-5.4-mini-fast-latest": "gpt-5.4-mini-fast",

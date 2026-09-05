@@ -22,8 +22,12 @@ def _incomplete_response(response: dict[str, Any]) -> httpx.Response:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("requested_model", "actual_model"),
+    [("gpt-5.6", "gpt-5.6-sol"), ("gpt-6-astra", "gpt-6-astra"), ("gpt-6-astra-fast", "gpt-6-astra")],
+)
 async def test_chat_request_preserves_roles_tools_and_supported_options(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, requested_model: str, actual_model: str,
 ) -> None:
     chat_module = importlib.import_module("gptmock.services.chat")
     captured: list[dict[str, Any]] = []
@@ -38,7 +42,7 @@ async def test_chat_request_preserves_roles_tools_and_supported_options(
             {
                 "id": "resp_chat",
                 "status": "completed",
-                "model": "gpt-5.6-sol",
+                "model": actual_model,
                 "service_tier": "default",
             },
         )
@@ -47,7 +51,7 @@ async def test_chat_request_preserves_roles_tools_and_supported_options(
     monkeypatch.setattr(chat_module, "send_upstream_request", fake_send)
 
     payload = {
-        "model": "gpt-5.6",
+        "model": requested_model,
         "messages": [
             {"role": "system", "content": "system authority"},
             {"role": "developer", "content": "developer authority"},
@@ -74,9 +78,9 @@ async def test_chat_request_preserves_roles_tools_and_supported_options(
 
     assert is_stream is False
     assert result["id"] == "resp_chat"
-    assert result["model"] == "gpt-5.6-sol"
+    assert result["model"] == actual_model
     assert result["service_tier"] == "default"
-    assert captured[0]["model"] == "gpt-5.6-sol"
+    assert captured[0]["model"] == actual_model
     assert [item["role"] for item in captured[0]["input"]] == ["system", "developer", "user"]
     assert captured[0]["tools"][0]["strict"] is True
     assert captured[0]["tool_choice"] == "required"
@@ -115,8 +119,9 @@ def test_chat_reasoning_effort_overrides_synthetic_model_suffix() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("model", ["gpt-5.6-luna", "gpt-6-astra"])
 async def test_responses_request_preserves_input_options_and_actual_response(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, model: str,
 ) -> None:
     responses_module = importlib.import_module("gptmock.services.responses")
     captured: list[dict[str, Any]] = []
@@ -128,7 +133,7 @@ async def test_responses_request_preserves_input_options_and_actual_response(
         "id": "resp_semantics",
         "object": "response",
         "status": "completed",
-        "model": "gpt-5.6-luna",
+        "model": model,
         "service_tier": "default",
         "previous_response_id": "resp_previous",
         "reasoning": {"effort": "high"},
@@ -151,7 +156,7 @@ async def test_responses_request_preserves_input_options_and_actual_response(
     monkeypatch.setattr(responses_module, "send_upstream_request", fake_send)
 
     payload = {
-        "model": "gpt-5.6-luna",
+        "model": model,
         "input": "hello as a string",
         "tool_choice": "required",
         "previous_response_id": "resp_previous",
@@ -166,7 +171,7 @@ async def test_responses_request_preserves_input_options_and_actual_response(
 
     assert is_stream is False
     assert captured[0]["input"][0]["content"][0]["text"] == "hello as a string"
-    assert captured[0]["model"] == "gpt-5.6-luna"
+    assert captured[0]["model"] == model
     assert captured[0]["tool_choice"] == "required"
     assert captured[0]["previous_response_id"] == "resp_previous"
     assert captured[0]["service_tier"] == "priority"
@@ -175,7 +180,7 @@ async def test_responses_request_preserves_input_options_and_actual_response(
         "effort": "max",
         "summary": "auto",
     }
-    assert result["model"] == "gpt-5.6-luna"
+    assert result["model"] == model
     assert result["service_tier"] == "default"
     assert result["previous_response_id"] == "resp_previous"
     assert result["reasoning"] == {"effort": "high"}

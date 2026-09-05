@@ -1,34 +1,23 @@
 x-gptmock-common: &gptmock-common
-  image: ${GPTMOCK_IMAGE:-gptmock:local}
-  build:
-    context: .
-    dockerfile: docker/Dockerfile
+  image: rapidrabbit76/gptmock:latest
   environment:
     - GPTMOCK_HOME=/data
     - GPTMOCK_LOGIN_BIND=0.0.0.0
-    - GPTMOCK_OUTPUT_TOKEN_POLICY=${GPTMOCK_OUTPUT_TOKEN_POLICY:-omit}
-  env_file:
-    - path: .env
-      required: false
   volumes:
-    - gptmock-data:/data
-  read_only: true
-  tmpfs:
-    - /tmp:size=64m,mode=1777
-  cap_drop:
-    - ALL
-  security_opt:
-    - no-new-privileges:true
-  init: true
-  pids_limit: 256
+    - ./volumes/gptmock:/data
 
 services:
   serve:
     <<: *gptmock-common
-    command: [ "serve", "--host", "0.0.0.0" ]
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: gptmock
+    command: [ "serve", "--verbose", "--host", "0.0.0.0" ]
+    env_file: .env
     ports:
-      - "127.0.0.1:8000:8000"
-      - "127.0.0.1:1455:1455"
+      - "8000:8000"
+      - "1455:1455"
     healthcheck:
       test: [ "CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health').status==200 else 1)\"" ]
       interval: 10s
@@ -40,11 +29,8 @@ services:
     <<: *gptmock-common
     command: [ "login" ]
     ports:
-      - "127.0.0.1:1455:1455"
+      - "1455:1455"
 
   info:
     <<: *gptmock-common
     command: [ "info" ]
-
-volumes:
-  gptmock-data:

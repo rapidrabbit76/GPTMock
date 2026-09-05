@@ -438,7 +438,7 @@ class TestModelRegistry:
             assert m["details"]["format"] == "remote"
             assert m["size"] == 0
             assert m["digest"] == ""
-            assert m["modified_at"] == "2026-08-26T00:00:00Z"
+            assert m["modified_at"] == "2026-09-05T00:00:00Z"
             assert isinstance(m["remote_model"], str)
             assert m["capabilities"] == ["completion", "tools", "thinking"]
 
