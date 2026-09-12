@@ -14,8 +14,11 @@ from starlette.testclient import TestClient
     reason="Live image generation is opt-in because it consumes ChatGPT/Codex credits.",
 )
 def test_responses_image_generation_live(client: TestClient, tmp_path: Path) -> None:
+    model = os.getenv("GPTMOCK_IMAGE_GENERATION_MODEL", "").strip()
+    if not model:
+        pytest.skip("Set GPTMOCK_IMAGE_GENERATION_MODEL to an account-verified image-generation model.")
     payload: dict[str, Any] = {
-        "model": os.getenv("GPTMOCK_IMAGE_GENERATION_MODEL", "gpt-5.4-mini"),
+        "model": model,
         "input": [
             {
                 "type": "message",

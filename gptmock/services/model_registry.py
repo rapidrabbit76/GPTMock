@@ -11,25 +11,21 @@ from gptmock.services.reasoning import (
 
 MODEL_GROUPS: list[tuple[str, list[str]]] = [
     ("gpt-5.3-codex-spark", ["xhigh", "high", "medium", "low"]),
-    ("gpt-5.4", ["xhigh", "high", "medium", "low"]),
     ("gpt-5.5", ["xhigh", "high", "medium", "low"]),
     ("gpt-5.6", ["max", "xhigh", "high", "medium", "low", "none"]),
     ("gpt-5.6-sol", ["max", "xhigh", "high", "medium", "low", "none"]),
     ("gpt-5.6-terra", ["max", "xhigh", "high", "medium", "low", "none"]),
     ("gpt-5.6-luna", ["max", "xhigh", "high", "medium", "low", "none"]),
     ("gpt-6-astra", ["max", "xhigh", "high", "medium", "low"]),
-    ("gpt-5.4-mini", ["xhigh", "high", "medium", "low"]),
 ]
 
 SYNTHETIC_MODEL_GROUPS: list[tuple[str, list[str]]] = [
-    ("gpt-5.4-fast", ["xhigh", "high", "medium", "low"]),
     ("gpt-5.5-fast", ["xhigh", "high", "medium", "low"]),
     ("gpt-5.6-fast", ["max", "xhigh", "high", "medium", "low", "none"]),
     ("gpt-5.6-sol-fast", ["max", "xhigh", "high", "medium", "low", "none"]),
     ("gpt-5.6-terra-fast", ["max", "xhigh", "high", "medium", "low", "none"]),
     ("gpt-5.6-luna-fast", ["max", "xhigh", "high", "medium", "low", "none"]),
     ("gpt-6-astra-fast", ["max", "xhigh", "high", "medium", "low"]),
-    ("gpt-5.4-mini-fast", ["xhigh", "high", "medium", "low"]),
 ]
 
 _BASE_MODEL_IDS: frozenset[str] = frozenset(
@@ -43,14 +39,12 @@ UPSTREAM_MODEL_ALIASES: dict[str, str] = {
 }
 
 FAST_MODEL_ALIASES: dict[str, str] = {
-    "gpt-5.4-fast": "gpt-5.4",
     "gpt-5.5-fast": "gpt-5.5",
     "gpt-5.6-fast": "gpt-5.6-sol",
     "gpt-5.6-sol-fast": "gpt-5.6-sol",
     "gpt-5.6-terra-fast": "gpt-5.6-terra",
     "gpt-5.6-luna-fast": "gpt-5.6-luna",
     "gpt-6-astra-fast": "gpt-6-astra",
-    "gpt-5.4-mini-fast": "gpt-5.4-mini",
 }
 
 FAST_SERVICE_TIER: str = "priority"
@@ -64,7 +58,7 @@ def normalize_model_name(name: str | None, debug_model: str | None = None) -> st
     if isinstance(debug_model, str) and debug_model.strip():
         return debug_model.strip()
     if not isinstance(name, str) or not name.strip():
-        return "gpt-5.4"
+        raise ValueError("A non-empty model name is required")
     base = name.split(":", 1)[0].strip()
     for sep in ("-", "_"):
         lowered = base.lower()
@@ -101,9 +95,6 @@ def normalize_model_name(name: str | None, debug_model: str | None = None) -> st
         "gpt5.1-codex-mini": "gpt-5.1-codex-mini",
         "gpt-5.1-codex-mini": "gpt-5.1-codex-mini",
         "gpt-5.1-codex-mini-latest": "gpt-5.1-codex-mini",
-        "gpt5.4": "gpt-5.4",
-        "gpt-5.4": "gpt-5.4",
-        "gpt-5.4-latest": "gpt-5.4",
         "gpt5.5": "gpt-5.5",
         "gpt-5.5": "gpt-5.5",
         "gpt-5.5-latest": "gpt-5.5",
@@ -122,12 +113,6 @@ def normalize_model_name(name: str | None, debug_model: str | None = None) -> st
         "gpt6-astra": "gpt-6-astra",
         "gpt-6-astra": "gpt-6-astra",
         "gpt-6-astra-latest": "gpt-6-astra",
-        "gpt5.4-mini": "gpt-5.4-mini",
-        "gpt-5.4-mini": "gpt-5.4-mini",
-        "gpt-5.4-mini-latest": "gpt-5.4-mini",
-        "gpt5.4-fast": "gpt-5.4-fast",
-        "gpt-5.4-fast": "gpt-5.4-fast",
-        "gpt-5.4-fast-latest": "gpt-5.4-fast",
         "gpt5.5-fast": "gpt-5.5-fast",
         "gpt-5.5-fast": "gpt-5.5-fast",
         "gpt-5.5-fast-latest": "gpt-5.5-fast",
@@ -146,9 +131,6 @@ def normalize_model_name(name: str | None, debug_model: str | None = None) -> st
         "gpt6-astra-fast": "gpt-6-astra-fast",
         "gpt-6-astra-fast": "gpt-6-astra-fast",
         "gpt-6-astra-fast-latest": "gpt-6-astra-fast",
-        "gpt5.4-mini-fast": "gpt-5.4-mini-fast",
-        "gpt-5.4-mini-fast": "gpt-5.4-mini-fast",
-        "gpt-5.4-mini-fast-latest": "gpt-5.4-mini-fast",
     }
     return mapping.get(base, base)
 

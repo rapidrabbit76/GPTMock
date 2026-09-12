@@ -14,9 +14,12 @@ from gptmock.infra.limits import record_rate_limits_from_response
 logger = logging.getLogger(__name__)
 
 
-def _adapt_astra_system_messages(payload: dict[str, Any]) -> dict[str, Any]:
-    """Carry text system instructions into Astra's supported instructions field."""
-    if payload.get("model") != "gpt-6-astra":
+def _adapt_system_messages(payload: dict[str, Any]) -> dict[str, Any]:
+    """Carry system text into instructions for models verified to reject the role."""
+    # Aliases have already been resolved to concrete models by each service.
+    if payload.get("model") not in {
+        "gpt-5.3-codex-spark", "gpt-5.5", "gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-6-astra",
+    }:
         return payload
     input_items = payload.get("input")
     if not isinstance(input_items, list):
@@ -99,7 +102,7 @@ async def send_upstream_request(
     UpstreamError
         If the HTTP request itself fails (network / timeout).
     """
-    payload = _adapt_astra_system_messages(payload)
+    payload = _adapt_system_messages(payload)
     if verbose:
         log_json("OUTBOUND >> ChatGPT Responses API payload", payload, logger=logger.debug)
 

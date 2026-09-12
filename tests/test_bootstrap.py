@@ -107,7 +107,7 @@ class TestAppBootstrap:
         assert len(data["models"]) > 0
 
     def test_ollama_show_valid_model(self, client: TestClient) -> None:
-        resp = client.post("/api/show", json={"model": "gpt-5.4"})
+        resp = client.post("/api/show", json={"model": "gpt-5.5"})
         assert resp.status_code == 200
         data = resp.json()
         assert "details" in data
@@ -364,8 +364,8 @@ class TestModelRegistry:
     def test_get_openai_models_reasoning_per_family(self) -> None:
         models = {m["id"]: m for m in get_openai_models(expose_reasoning=False)}
 
-        assert "xhigh" in models["gpt-5.4"]["reasoning"]["supported_efforts"]
-        assert "minimal" not in models["gpt-5.4"]["reasoning"]["supported_efforts"]
+        assert "xhigh" in models["gpt-5.5"]["reasoning"]["supported_efforts"]
+        assert "minimal" not in models["gpt-5.5"]["reasoning"]["supported_efforts"]
         assert models["gpt-5.6-luna"]["reasoning"]["supported_efforts"] == [
             "none", "low", "medium", "high", "xhigh", "max",
         ]
@@ -373,23 +373,23 @@ class TestModelRegistry:
     def test_get_openai_models_reasoning_for_variants(self) -> None:
         models = {m["id"]: m for m in get_openai_models(expose_reasoning=True)}
 
-        gpt54_high = models["gpt-5.4-high"]["reasoning"]
-        assert gpt54_high["supported_efforts"] == ["low", "medium", "high", "xhigh"]
-        assert gpt54_high["preset_effort"] == "high"
+        gpt55_high = models["gpt-5.5-high"]["reasoning"]
+        assert gpt55_high["supported_efforts"] == ["low", "medium", "high", "xhigh"]
+        assert gpt55_high["preset_effort"] == "high"
 
-        gpt54_xhigh = models["gpt-5.4-xhigh"]["reasoning"]
-        assert gpt54_xhigh["supported_efforts"] == ["low", "medium", "high", "xhigh"]
-        assert gpt54_xhigh["preset_effort"] == "xhigh"
+        gpt55_xhigh = models["gpt-5.5-xhigh"]["reasoning"]
+        assert gpt55_xhigh["supported_efforts"] == ["low", "medium", "high", "xhigh"]
+        assert gpt55_xhigh["preset_effort"] == "xhigh"
 
     def test_get_openai_models_default_effort_reflects_setting(self) -> None:
         models_medium = {m["id"]: m for m in get_openai_models(default_effort="medium")}
-        assert models_medium["gpt-5.4"]["reasoning"]["default_effort"] == "medium"
+        assert models_medium["gpt-5.5"]["reasoning"]["default_effort"] == "medium"
 
         models_high = {m["id"]: m for m in get_openai_models(default_effort="high")}
-        assert models_high["gpt-5.4"]["reasoning"]["default_effort"] == "high"
+        assert models_high["gpt-5.5"]["reasoning"]["default_effort"] == "high"
 
         models_xhigh = {m["id"]: m for m in get_openai_models(default_effort="xhigh")}
-        assert models_xhigh["gpt-5.4"]["reasoning"]["default_effort"] == "xhigh"
+        assert models_xhigh["gpt-5.5"]["reasoning"]["default_effort"] == "xhigh"
 
     def test_get_openai_models_endpoint_reflects_configured_default_effort(
         self, client: TestClient
@@ -398,7 +398,7 @@ class TestModelRegistry:
         assert resp.status_code == 200
         data = resp.json()
         models = {m["id"]: m for m in data["data"]}
-        assert models["gpt-5.4"]["reasoning"]["default_effort"] in {
+        assert models["gpt-5.5"]["reasoning"]["default_effort"] in {
             "low", "medium", "high", "xhigh",
         }
 
@@ -414,9 +414,10 @@ class TestModelRegistry:
     def test_variant_detection_requires_known_base(self) -> None:
         from gptmock.services.model_registry import _detect_preset_effort
 
-        assert _detect_preset_effort("gpt-5.4-high") == "high"
-        assert _detect_preset_effort("gpt-5.4_medium") == "medium"
-        assert _detect_preset_effort("gpt-5.4") is None
+        assert _detect_preset_effort("gpt-5.5-high") == "high"
+        assert _detect_preset_effort("gpt-5.5_medium") == "medium"
+        assert _detect_preset_effort("gpt-5.5") is None
+        assert _detect_preset_effort("gpt-5.4-high") is None
         assert _detect_preset_effort("unknown-model-high") is None
 
     def test_allowed_efforts_handles_variant_ids(self) -> None:
@@ -481,9 +482,6 @@ class TestFastModelVariants:
             assert models[f"gpt-5.6-{family}"]["reasoning"]["supported_efforts"] == gpt56_efforts
 
     def test_normalize_fast_aliases(self) -> None:
-        assert normalize_model_name("gpt-5.4-fast") == "gpt-5.4-fast"
-        assert normalize_model_name("gpt5.4-fast") == "gpt-5.4-fast"
-        assert normalize_model_name("gpt-5.4-fast-latest") == "gpt-5.4-fast"
         assert normalize_model_name("gpt-5.5") == "gpt-5.5"
         assert normalize_model_name("gpt5.5") == "gpt-5.5"
         assert normalize_model_name("gpt-5.5-latest") == "gpt-5.5"
@@ -504,31 +502,22 @@ class TestFastModelVariants:
             assert normalize_model_name(f"gpt-5.6-{family}-fast") == f"gpt-5.6-{family}-fast"
             assert normalize_model_name(f"gpt5.6-{family}-fast") == f"gpt-5.6-{family}-fast"
             assert normalize_model_name(f"gpt-5.6-{family}-fast-latest") == f"gpt-5.6-{family}-fast"
-        assert normalize_model_name("gpt-5.4-mini-fast") == "gpt-5.4-mini-fast"
-        assert normalize_model_name("gpt5.4-mini-fast") == "gpt-5.4-mini-fast"
-        assert normalize_model_name("gpt-5.4-mini-fast-latest") == "gpt-5.4-mini-fast"
 
     def test_normalize_fast_with_effort_suffix_strips_effort(self) -> None:
-        assert normalize_model_name("gpt-5.4-fast-medium") == "gpt-5.4-fast"
-        assert normalize_model_name("gpt-5.4-fast-xhigh") == "gpt-5.4-fast"
         assert normalize_model_name("gpt-5.5-fast-medium") == "gpt-5.5-fast"
         assert normalize_model_name("gpt-5.5-fast-xhigh") == "gpt-5.5-fast"
         assert normalize_model_name("gpt-5.6-sol-fast-medium") == "gpt-5.6-sol-fast"
         assert normalize_model_name("gpt-5.6-sol-fast-xhigh") == "gpt-5.6-sol-fast"
-        assert normalize_model_name("gpt-5.4-mini-fast-high") == "gpt-5.4-mini-fast"
-        assert normalize_model_name("gpt-5.4-mini-fast-low") == "gpt-5.4-mini-fast"
 
     def test_resolve_upstream_model_for_fast_aliases(self) -> None:
         from gptmock.services.model_registry import resolve_upstream_model
 
         priority = {"service_tier": "priority"}
-        assert resolve_upstream_model("gpt-5.4-fast") == ("gpt-5.4", priority)
         assert resolve_upstream_model("gpt-5.5-fast") == ("gpt-5.5", priority)
         assert resolve_upstream_model("gpt-5.6-fast") == ("gpt-5.6-sol", priority)
         assert resolve_upstream_model("gpt-5.6-sol-fast") == ("gpt-5.6-sol", priority)
         assert resolve_upstream_model("gpt-5.6-terra-fast") == ("gpt-5.6-terra", priority)
         assert resolve_upstream_model("gpt-5.6-luna-fast") == ("gpt-5.6-luna", priority)
-        assert resolve_upstream_model("gpt-5.4-mini-fast") == ("gpt-5.4-mini", priority)
 
     def test_apply_model_overrides_sets_service_tier(self) -> None:
         payload = {"service_tier": "default"}
