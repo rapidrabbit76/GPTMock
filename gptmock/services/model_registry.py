@@ -261,7 +261,7 @@ def get_ollama_models(expose_reasoning: bool = False) -> list[dict[str, Any]]:
     model_ids = get_model_list(expose_reasoning)
     models = []
     for model_id in model_ids:
-        upstream_model, _ = resolve_upstream_model(model_id)
+        upstream_model, _ = resolve_upstream_model(normalize_model_name(model_id))
         models.append(
             {
                 "name": model_id,

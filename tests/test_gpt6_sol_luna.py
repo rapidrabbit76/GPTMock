@@ -47,6 +47,22 @@ def test_gpt6_discovery_advertises_concrete_models(model: str, expose_reasoning:
             assert (name in models) is expose_reasoning
             if expose_reasoning:
                 assert models[name]["reasoning"]["preset_effort"] == effort
+                assert tags[name]["remote_model"] == model
+
+
+@pytest.mark.parametrize("model", MODELS)
+@pytest.mark.parametrize("effort", EFFORTS)
+def test_gpt6_show_effort_variant_reports_concrete_upstream(model: str, effort: str) -> None:
+    with TestClient(create_app(Settings(expose_reasoning_models=True))) as client:
+        response = client.post("/api/show", json={"model": f"{model}-{effort}"})
+    assert response.status_code == 200
+    assert response.json()["model_info"]["gptmock.upstream_model"] == model
+
+
+@pytest.mark.parametrize("model", MODELS)
+def test_gpt6_show_hides_effort_variants_by_default(model: str) -> None:
+    with TestClient(create_app(Settings(expose_reasoning_models=False))) as client:
+        assert client.post("/api/show", json={"model": f"{model}-max"}).status_code == 404
 
 
 @pytest.mark.parametrize("model", MODELS)

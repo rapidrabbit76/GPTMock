@@ -20,6 +20,7 @@ from gptmock.services.model_registry import (
     FAST_MODEL_ALIASES,
     get_model_list,
     get_ollama_models,
+    normalize_model_name,
     resolve_upstream_model,
 )
 from gptmock.services.ollama_tools import accumulate_tool_deltas, native_tool_calls
@@ -369,7 +370,7 @@ async def ollama_show(
             log_json("OUT POST /api/show", err, logger=logger.debug)
         return JSONResponse(err, status_code=404)
 
-    upstream_model, overrides = resolve_upstream_model(model)
+    upstream_model, overrides = resolve_upstream_model(normalize_model_name(model))
     response = {
         "details": {
             "parent_model": "",
