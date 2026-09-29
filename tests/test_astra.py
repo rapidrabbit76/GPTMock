@@ -28,6 +28,7 @@ from gptmock.services.upstream import _adapt_system_messages
 ASTRA_EFFORTS = ["low", "medium", "high", "xhigh", "max"]
 SYSTEM_INSTRUCTION_MODELS = [
     "gpt-5.3-codex-spark", "gpt-5.5", "gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-6-astra",
+    "gpt-6-sol", "gpt-6-luna",
 ]
 SYSTEM_INSTRUCTION_REQUEST_MODELS = [
     model + suffix
