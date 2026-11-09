@@ -29,7 +29,7 @@ ASTRA_EFFORTS = ["low", "medium", "high", "xhigh", "max"]
 RETIRED_SYSTEM_INSTRUCTION_MODELS = ["gpt-5.3-codex-spark", "gpt-5.5"]
 SYSTEM_INSTRUCTION_MODELS = [
     *RETIRED_SYSTEM_INSTRUCTION_MODELS, "gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-6-astra",
-    "gpt-6-sol", "gpt-6-luna",
+    "gpt-6-sol", "gpt-6-luna", "gpt-6.1-sol", "gpt-6.1-terra",
 ]
 SYSTEM_INSTRUCTION_REQUEST_MODELS = [
     model + suffix
