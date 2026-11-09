@@ -26,14 +26,15 @@ from gptmock.services.reasoning import (
 from gptmock.services.upstream import _adapt_system_messages
 
 ASTRA_EFFORTS = ["low", "medium", "high", "xhigh", "max"]
+RETIRED_SYSTEM_INSTRUCTION_MODELS = ["gpt-5.3-codex-spark", "gpt-5.5"]
 SYSTEM_INSTRUCTION_MODELS = [
-    "gpt-5.3-codex-spark", "gpt-5.5", "gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-6-astra",
+    *RETIRED_SYSTEM_INSTRUCTION_MODELS, "gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-6-astra",
     "gpt-6-sol", "gpt-6-luna",
 ]
 SYSTEM_INSTRUCTION_REQUEST_MODELS = [
     model + suffix
     for model in [*SYSTEM_INSTRUCTION_MODELS, "gpt-5.6"]
-    for suffix in (("",) if model == "gpt-5.3-codex-spark" else ("", "-fast"))
+    for suffix in (("",) if model in RETIRED_SYSTEM_INSTRUCTION_MODELS else ("", "-fast"))
 ]
 
 

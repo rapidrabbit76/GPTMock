@@ -19,7 +19,10 @@ from gptmock.services.model_registry import (
     resolve_upstream_model,
 )
 
-RETIRED_MODELS = ("gpt-5.4", "gpt-5.4-mini", "gpt-5.4-fast", "gpt-5.4-mini-fast")
+RETIRED_MODELS = (
+    "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-fast", "gpt-5.4-mini-fast",
+    "gpt-5.5", "gpt-5.5-fast", "gpt-5.3-codex-spark",
+)
 GENERATION_ROUTES = (
     "/v1/chat/completions", "/v1/completions", "/v1/responses", "/api/chat", "/api/generate",
 )
@@ -34,13 +37,14 @@ def test_retired_models_are_absent_from_discovery(expose_reasoning: bool) -> Non
         model_ids = {item["id"] for item in models.json()["data"]}
         tag_ids = {item["name"] for item in tags.json()["models"]}
         assert model_ids == tag_ids
-        assert "gpt-5.5" in model_ids
-        assert not any(name.startswith("gpt-5.4") for name in model_ids)
+        assert "gpt-5.6-sol" in model_ids
+        assert not any(name.startswith(("gpt-5.4", "gpt-5.5", "gpt-5.3")) for name in model_ids)
         for model in RETIRED_MODELS:
             assert client.post("/api/show", json={"model": model}).status_code == 404
             assert client.post("/api/show", json={"name": model}).status_code == 404
         if expose_reasoning:
-            assert client.post("/api/show", json={"model": "gpt-5.4-high"}).status_code == 404
+            for variant in ("gpt-5.4-high", "gpt-5.5-high", "gpt-5.3-codex-spark-high"):
+                assert client.post("/api/show", json={"model": variant}).status_code == 404
 
 
 @pytest.mark.parametrize("model", RETIRED_MODELS)
@@ -92,7 +96,7 @@ def test_empty_model_has_no_implicit_default(model: str | None) -> None:
 
 
 def test_explicit_debug_model_override_remains_available() -> None:
-    assert normalize_model_name("", debug_model="gpt-5.5") == "gpt-5.5"
+    assert normalize_model_name("", debug_model="gpt-5.6-sol") == "gpt-5.6-sol"
 
 
 @pytest.mark.parametrize("route", GENERATION_ROUTES)

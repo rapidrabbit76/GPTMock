@@ -10,8 +10,6 @@ from gptmock.services.reasoning import (
 )
 
 MODEL_GROUPS: list[tuple[str, list[str]]] = [
-    ("gpt-5.3-codex-spark", ["xhigh", "high", "medium", "low"]),
-    ("gpt-5.5", ["xhigh", "high", "medium", "low"]),
     ("gpt-5.6", ["max", "xhigh", "high", "medium", "low", "none"]),
     ("gpt-5.6-sol", ["max", "xhigh", "high", "medium", "low", "none"]),
     ("gpt-5.6-terra", ["max", "xhigh", "high", "medium", "low", "none"]),
@@ -22,7 +20,6 @@ MODEL_GROUPS: list[tuple[str, list[str]]] = [
 ]
 
 SYNTHETIC_MODEL_GROUPS: list[tuple[str, list[str]]] = [
-    ("gpt-5.5-fast", ["xhigh", "high", "medium", "low"]),
     ("gpt-5.6-fast", ["max", "xhigh", "high", "medium", "low", "none"]),
     ("gpt-5.6-sol-fast", ["max", "xhigh", "high", "medium", "low", "none"]),
     ("gpt-5.6-terra-fast", ["max", "xhigh", "high", "medium", "low", "none"]),
@@ -43,7 +40,6 @@ UPSTREAM_MODEL_ALIASES: dict[str, str] = {
 }
 
 FAST_MODEL_ALIASES: dict[str, str] = {
-    "gpt-5.5-fast": "gpt-5.5",
     "gpt-5.6-fast": "gpt-5.6-sol",
     "gpt-5.6-sol-fast": "gpt-5.6-sol",
     "gpt-5.6-terra-fast": "gpt-5.6-terra",
@@ -89,9 +85,6 @@ def normalize_model_name(name: str | None, debug_model: str | None = None) -> st
         "gpt5.3-codex": "gpt-5.3-codex",
         "gpt-5.3-codex": "gpt-5.3-codex",
         "gpt-5.3-codex-latest": "gpt-5.3-codex",
-        "gpt5.3-codex-spark": "gpt-5.3-codex-spark",
-        "gpt-5.3-codex-spark": "gpt-5.3-codex-spark",
-        "gpt-5.3-codex-spark-latest": "gpt-5.3-codex-spark",
         "gpt5-codex": "gpt-5-codex",
         "gpt-5-codex": "gpt-5-codex",
         "gpt-5-codex-latest": "gpt-5-codex",
@@ -101,9 +94,6 @@ def normalize_model_name(name: str | None, debug_model: str | None = None) -> st
         "gpt5.1-codex-mini": "gpt-5.1-codex-mini",
         "gpt-5.1-codex-mini": "gpt-5.1-codex-mini",
         "gpt-5.1-codex-mini-latest": "gpt-5.1-codex-mini",
-        "gpt5.5": "gpt-5.5",
-        "gpt-5.5": "gpt-5.5",
-        "gpt-5.5-latest": "gpt-5.5",
         "gpt5.6": "gpt-5.6",
         "gpt-5.6": "gpt-5.6",
         "gpt-5.6-latest": "gpt-5.6",
@@ -125,9 +115,6 @@ def normalize_model_name(name: str | None, debug_model: str | None = None) -> st
         "gpt6-luna": "gpt-6-luna",
         "gpt-6-luna": "gpt-6-luna",
         "gpt-6-luna-latest": "gpt-6-luna",
-        "gpt5.5-fast": "gpt-5.5-fast",
-        "gpt-5.5-fast": "gpt-5.5-fast",
-        "gpt-5.5-fast-latest": "gpt-5.5-fast",
         "gpt5.6-fast": "gpt-5.6-fast",
         "gpt-5.6-fast": "gpt-5.6-fast",
         "gpt-5.6-fast-latest": "gpt-5.6-fast",
