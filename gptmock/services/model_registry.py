@@ -17,6 +17,8 @@ MODEL_GROUPS: list[tuple[str, list[str]]] = [
     ("gpt-6-astra", ["max", "xhigh", "high", "medium", "low"]),
     ("gpt-6-sol", ["max", "xhigh", "high", "medium", "low", "none"]),
     ("gpt-6-luna", ["max", "xhigh", "high", "medium", "low", "none"]),
+    ("gpt-6.1-sol", ["max", "xhigh", "high", "medium", "low"]),
+    ("gpt-6.1-terra", ["max", "xhigh", "high", "medium", "low", "none"]),
 ]
 
 SYNTHETIC_MODEL_GROUPS: list[tuple[str, list[str]]] = [
@@ -27,6 +29,8 @@ SYNTHETIC_MODEL_GROUPS: list[tuple[str, list[str]]] = [
     ("gpt-6-astra-fast", ["max", "xhigh", "high", "medium", "low"]),
     ("gpt-6-sol-fast", ["max", "xhigh", "high", "medium", "low", "none"]),
     ("gpt-6-luna-fast", ["max", "xhigh", "high", "medium", "low", "none"]),
+    ("gpt-6.1-sol-fast", ["max", "xhigh", "high", "medium", "low"]),
+    ("gpt-6.1-terra-fast", ["max", "xhigh", "high", "medium", "low", "none"]),
 ]
 
 _BASE_MODEL_IDS: frozenset[str] = frozenset(
@@ -47,6 +51,8 @@ FAST_MODEL_ALIASES: dict[str, str] = {
     "gpt-6-astra-fast": "gpt-6-astra",
     "gpt-6-sol-fast": "gpt-6-sol",
     "gpt-6-luna-fast": "gpt-6-luna",
+    "gpt-6.1-sol-fast": "gpt-6.1-sol",
+    "gpt-6.1-terra-fast": "gpt-6.1-terra",
 }
 
 FAST_SERVICE_TIER: str = "priority"
@@ -115,6 +121,12 @@ def normalize_model_name(name: str | None, debug_model: str | None = None) -> st
         "gpt6-luna": "gpt-6-luna",
         "gpt-6-luna": "gpt-6-luna",
         "gpt-6-luna-latest": "gpt-6-luna",
+        "gpt6.1-sol": "gpt-6.1-sol",
+        "gpt-6.1-sol": "gpt-6.1-sol",
+        "gpt-6.1-sol-latest": "gpt-6.1-sol",
+        "gpt6.1-terra": "gpt-6.1-terra",
+        "gpt-6.1-terra": "gpt-6.1-terra",
+        "gpt-6.1-terra-latest": "gpt-6.1-terra",
         "gpt5.6-fast": "gpt-5.6-fast",
         "gpt-5.6-fast": "gpt-5.6-fast",
         "gpt-5.6-fast-latest": "gpt-5.6-fast",
@@ -136,6 +148,12 @@ def normalize_model_name(name: str | None, debug_model: str | None = None) -> st
         "gpt6-luna-fast": "gpt-6-luna-fast",
         "gpt-6-luna-fast": "gpt-6-luna-fast",
         "gpt-6-luna-fast-latest": "gpt-6-luna-fast",
+        "gpt6.1-sol-fast": "gpt-6.1-sol-fast",
+        "gpt-6.1-sol-fast": "gpt-6.1-sol-fast",
+        "gpt-6.1-sol-fast-latest": "gpt-6.1-sol-fast",
+        "gpt6.1-terra-fast": "gpt-6.1-terra-fast",
+        "gpt-6.1-terra-fast": "gpt-6.1-terra-fast",
+        "gpt-6.1-terra-fast-latest": "gpt-6.1-terra-fast",
     }
     return mapping.get(base, base)
 
