@@ -39,6 +39,16 @@ class ResponsesCreateRequest(BaseModel):
     stream: bool = False
 
 
+class ImageGenerationRequest(BaseModel):
+    """POST /v1/images/generations request body."""
+
+    model_config = ConfigDict(extra="allow")
+
+    model: str
+    prompt: str
+    stream: bool = False
+
+
 class OllamaShowRequest(BaseModel):
     """POST /api/show request body."""
 

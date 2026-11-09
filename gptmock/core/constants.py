@@ -17,6 +17,7 @@ OAUTH_TOKEN_URL = f"{OAUTH_ISSUER_DEFAULT}/oauth/token"
 
 # ChatGPT API Endpoints
 CHATGPT_RESPONSES_URL = "https://chatgpt.com/backend-api/codex/responses"
+CHATGPT_IMAGES_GENERATIONS_URL = "https://chatgpt.com/backend-api/codex/images/generations"
 
 # SSE Event Types (Responses API)
 SSE_OUTPUT_TEXT_DELTA = "response.output_text.delta"
