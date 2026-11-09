@@ -345,6 +345,53 @@ with open("cat.png", "wb") as fp:
 
 > **Notes:** Image-generation support is account- and backend-dependent. Earlier documentation reported successful GPT-5.4/mini image generation, but that is historical evidence, not current availability.
 
+### Image Generation API (`/v1/images/generations`)
+
+`POST /v1/images/generations` accepts an OpenAI Images API request and proxies it to the ChatGPT Codex backend's direct images endpoint (`https://chatgpt.com/backend-api/codex/images/generations`) with your existing GPTMock / Codex OAuth credentials. It is separate from the Responses API `image_generation` tool described above.
+
+> **Not live-verified (2026-11-09):** this endpoint has not been tested against the ChatGPT backend from GPTMock. The upstream endpoint, request shape, and model IDs come from the CLIProxyAPI 8.0.50 source, and GPTMock's tests use a simulated upstream. Account availability, accepted options, and response fields may differ.
+
+Known image model IDs (from CLIProxyAPI 8.0.50): `gpt-image-1.5`, `gpt-image-2`, `gpt-image-2.5`, `gpt-image-2.5-flare`, `gpt-image-2.5-sunburst`, `gpt-image-2.6`, `gpt-image-2.6-flare`, `gpt-image-2.6-sunburst`.
+
+```bash
+curl http://127.0.0.1:8000/v1/images/generations \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-image-2.6",
+    "prompt": "A cute illustration of a fluffy orange tabby cat on a white background",
+    "size": "1024x1024",
+    "output_format": "png"
+  }'
+```
+
+With the OpenAI Python SDK:
+
+```python
+import base64
+
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://127.0.0.1:8000/v1",
+    api_key="gptmock-local",  # use GPTMOCK_API_KEY when it is configured
+)
+
+result = client.images.generate(
+    model="gpt-image-2.6",
+    prompt="A cute illustration of a fluffy orange tabby cat on a white background",
+    size="1024x1024",
+)
+with open("cat.png", "wb") as fp:
+    fp.write(base64.b64decode(result.data[0].b64_json))
+```
+
+- The JSON body is forwarded unchanged except that `model` is trimmed. GPTMock adds no defaults and removes no fields; the upstream validates options such as `n`, `size`, `quality`, `background`, `output_format`, `output_compression`, and `moderation`.
+- Upstream success responses are returned unchanged. Upstream errors keep their HTTP status and JSON body; a non-JSON error body is wrapped as `{"error": {"message": "..."}}`. Network failures return HTTP 502.
+- A missing `model` or `prompt` returns HTTP 422. An empty or whitespace-only `model` or `prompt` returns HTTP 400 before authentication.
+- Streaming is not supported yet: `stream: true` returns HTTP 400. `/v1/images/edits` is not supported yet.
+- Image models are intentionally not listed in `/v1/models` or `/api/tags`, because chat clients pick their models from those lists. Pass the image model ID directly.
+- When `GPTMOCK_API_KEY` is set, this route requires the same bearer token as the other `/v1/` routes.
+
 ### Local Image Inspection (`view_image`)
 
 GPTMock also supports a Codex-compatible `view_image` client-side tool for `POST /v1/responses`. Unlike `image_generation`, this is not executed by the upstream backend: GPTMock reads the local file, returns it to the model as an `input_image` function-call output, and then continues the Responses turn.
@@ -481,6 +528,7 @@ Docker probes on 2026-09-03 verified authenticated raw HTTP requests for tags, s
 | POST | `/v1/chat/completions` | OpenAI Chat Completions (stream / non-stream) |
 | POST | `/v1/completions` | OpenAI Text Completions |
 | POST | `/v1/responses` | OpenAI Responses API semantics |
+| POST | `/v1/images/generations` | OpenAI Images API generation (non-streaming), proxied to the Codex images endpoint |
 | GET | `/v1/models` | List configured model metadata; not a live availability check |
 | GET | `/api/version` | Ollama-compatible version info |
 | POST | `/api/chat` | Ollama-compatible chat |
@@ -497,6 +545,7 @@ Docker probes on 2026-09-03 verified authenticated raw HTTP requests for tags, s
 - **Structured Output** — `response_format` with `json_schema` / `json_object` support
 - **Tool / Function Calling** — including web search with URL citation annotations via `responses_tools`
 - **Image Generation** — Responses API `image_generation` tool support with base64 PNG output
+- **Images API** — `POST /v1/images/generations` proxies the Codex backend's direct images endpoint (not yet live-verified)
 - **Local Image Inspection** — Codex-compatible `view_image` function tool for allowed local image paths
 - **Thinking Summaries** — `standard` mode returns `reasoning_content` by default; optional `think-tags`, `o3`, and `legacy` modes support other clients
 - **Responses API** — `POST /v1/responses` for LangChain and other clients that auto-route codex models
