@@ -107,7 +107,7 @@ class TestAppBootstrap:
         assert len(data["models"]) > 0
 
     def test_ollama_show_valid_model(self, client: TestClient) -> None:
-        resp = client.post("/api/show", json={"model": "gpt-5.5"})
+        resp = client.post("/api/show", json={"model": "gpt-5.6-sol"})
         assert resp.status_code == 200
         data = resp.json()
         assert "details" in data
@@ -364,8 +364,8 @@ class TestModelRegistry:
     def test_get_openai_models_reasoning_per_family(self) -> None:
         models = {m["id"]: m for m in get_openai_models(expose_reasoning=False)}
 
-        assert "xhigh" in models["gpt-5.5"]["reasoning"]["supported_efforts"]
-        assert "minimal" not in models["gpt-5.5"]["reasoning"]["supported_efforts"]
+        assert "xhigh" in models["gpt-6-astra"]["reasoning"]["supported_efforts"]
+        assert "minimal" not in models["gpt-6-astra"]["reasoning"]["supported_efforts"]
         assert models["gpt-5.6-luna"]["reasoning"]["supported_efforts"] == [
             "none", "low", "medium", "high", "xhigh", "max",
         ]
@@ -373,23 +373,23 @@ class TestModelRegistry:
     def test_get_openai_models_reasoning_for_variants(self) -> None:
         models = {m["id"]: m for m in get_openai_models(expose_reasoning=True)}
 
-        gpt55_high = models["gpt-5.5-high"]["reasoning"]
-        assert gpt55_high["supported_efforts"] == ["low", "medium", "high", "xhigh"]
-        assert gpt55_high["preset_effort"] == "high"
+        astra_high = models["gpt-6-astra-high"]["reasoning"]
+        assert astra_high["supported_efforts"] == ["low", "medium", "high", "xhigh", "max"]
+        assert astra_high["preset_effort"] == "high"
 
-        gpt55_xhigh = models["gpt-5.5-xhigh"]["reasoning"]
-        assert gpt55_xhigh["supported_efforts"] == ["low", "medium", "high", "xhigh"]
-        assert gpt55_xhigh["preset_effort"] == "xhigh"
+        astra_xhigh = models["gpt-6-astra-xhigh"]["reasoning"]
+        assert astra_xhigh["supported_efforts"] == ["low", "medium", "high", "xhigh", "max"]
+        assert astra_xhigh["preset_effort"] == "xhigh"
 
     def test_get_openai_models_default_effort_reflects_setting(self) -> None:
         models_medium = {m["id"]: m for m in get_openai_models(default_effort="medium")}
-        assert models_medium["gpt-5.5"]["reasoning"]["default_effort"] == "medium"
+        assert models_medium["gpt-6-astra"]["reasoning"]["default_effort"] == "medium"
 
         models_high = {m["id"]: m for m in get_openai_models(default_effort="high")}
-        assert models_high["gpt-5.5"]["reasoning"]["default_effort"] == "high"
+        assert models_high["gpt-6-astra"]["reasoning"]["default_effort"] == "high"
 
         models_xhigh = {m["id"]: m for m in get_openai_models(default_effort="xhigh")}
-        assert models_xhigh["gpt-5.5"]["reasoning"]["default_effort"] == "xhigh"
+        assert models_xhigh["gpt-6-astra"]["reasoning"]["default_effort"] == "xhigh"
 
     def test_get_openai_models_endpoint_reflects_configured_default_effort(
         self, client: TestClient
@@ -398,8 +398,8 @@ class TestModelRegistry:
         assert resp.status_code == 200
         data = resp.json()
         models = {m["id"]: m for m in data["data"]}
-        assert models["gpt-5.5"]["reasoning"]["default_effort"] in {
-            "low", "medium", "high", "xhigh",
+        assert models["gpt-6-astra"]["reasoning"]["default_effort"] in {
+            "low", "medium", "high", "xhigh", "max",
         }
 
     def test_strip_effort_suffix_handles_both_separators(self) -> None:
@@ -414,10 +414,11 @@ class TestModelRegistry:
     def test_variant_detection_requires_known_base(self) -> None:
         from gptmock.services.model_registry import _detect_preset_effort
 
-        assert _detect_preset_effort("gpt-5.5-high") == "high"
-        assert _detect_preset_effort("gpt-5.5_medium") == "medium"
-        assert _detect_preset_effort("gpt-5.5") is None
+        assert _detect_preset_effort("gpt-6-astra-high") == "high"
+        assert _detect_preset_effort("gpt-6-astra_medium") == "medium"
+        assert _detect_preset_effort("gpt-6-astra") is None
         assert _detect_preset_effort("gpt-5.4-high") is None
+        assert _detect_preset_effort("gpt-5.5-high") is None
         assert _detect_preset_effort("unknown-model-high") is None
 
     def test_allowed_efforts_handles_variant_ids(self) -> None:
@@ -463,7 +464,6 @@ class TestFastModelVariants:
 
     def test_fast_variants_are_not_advertised(self) -> None:
         models = get_model_list(expose_reasoning=False)
-        assert "gpt-5.5" in models
         assert "gpt-5.6" in models
         for family in ("sol", "terra", "luna"):
             assert f"gpt-5.6-{family}" in models
@@ -475,16 +475,11 @@ class TestFastModelVariants:
 
     def test_verified_variants_reasoning_metadata(self) -> None:
         models = {m["id"]: m for m in get_openai_models(expose_reasoning=False)}
-        expected_efforts = ["low", "medium", "high", "xhigh"]
         gpt56_efforts = ["none", "low", "medium", "high", "xhigh", "max"]
-        assert models["gpt-5.5"]["reasoning"]["supported_efforts"] == expected_efforts
         for family in ("sol", "terra", "luna"):
             assert models[f"gpt-5.6-{family}"]["reasoning"]["supported_efforts"] == gpt56_efforts
 
     def test_normalize_fast_aliases(self) -> None:
-        assert normalize_model_name("gpt-5.5") == "gpt-5.5"
-        assert normalize_model_name("gpt5.5") == "gpt-5.5"
-        assert normalize_model_name("gpt-5.5-latest") == "gpt-5.5"
         assert normalize_model_name("gpt-5.6") == "gpt-5.6"
         assert normalize_model_name("gpt5.6") == "gpt-5.6"
         assert normalize_model_name("gpt-5.6-latest") == "gpt-5.6"
@@ -492,9 +487,6 @@ class TestFastModelVariants:
             assert normalize_model_name(f"gpt-5.6-{family}") == f"gpt-5.6-{family}"
             assert normalize_model_name(f"gpt5.6-{family}") == f"gpt-5.6-{family}"
             assert normalize_model_name(f"gpt-5.6-{family}-latest") == f"gpt-5.6-{family}"
-        assert normalize_model_name("gpt-5.5-fast") == "gpt-5.5-fast"
-        assert normalize_model_name("gpt5.5-fast") == "gpt-5.5-fast"
-        assert normalize_model_name("gpt-5.5-fast-latest") == "gpt-5.5-fast"
         assert normalize_model_name("gpt-5.6-fast") == "gpt-5.6-fast"
         assert normalize_model_name("gpt5.6-fast") == "gpt-5.6-fast"
         assert normalize_model_name("gpt-5.6-fast-latest") == "gpt-5.6-fast"
@@ -504,8 +496,6 @@ class TestFastModelVariants:
             assert normalize_model_name(f"gpt-5.6-{family}-fast-latest") == f"gpt-5.6-{family}-fast"
 
     def test_normalize_fast_with_effort_suffix_strips_effort(self) -> None:
-        assert normalize_model_name("gpt-5.5-fast-medium") == "gpt-5.5-fast"
-        assert normalize_model_name("gpt-5.5-fast-xhigh") == "gpt-5.5-fast"
         assert normalize_model_name("gpt-5.6-sol-fast-medium") == "gpt-5.6-sol-fast"
         assert normalize_model_name("gpt-5.6-sol-fast-xhigh") == "gpt-5.6-sol-fast"
 
@@ -513,7 +503,6 @@ class TestFastModelVariants:
         from gptmock.services.model_registry import resolve_upstream_model
 
         priority = {"service_tier": "priority"}
-        assert resolve_upstream_model("gpt-5.5-fast") == ("gpt-5.5", priority)
         assert resolve_upstream_model("gpt-5.6-fast") == ("gpt-5.6-sol", priority)
         assert resolve_upstream_model("gpt-5.6-sol-fast") == ("gpt-5.6-sol", priority)
         assert resolve_upstream_model("gpt-5.6-terra-fast") == ("gpt-5.6-terra", priority)
@@ -578,7 +567,6 @@ class TestFastModelVariants:
         resp = client.get("/v1/models")
         assert resp.status_code == 200
         ids = {m["id"] for m in resp.json()["data"]}
-        assert "gpt-5.5" in ids
         assert "gpt-5.6" in ids
         for family in ("sol", "terra", "luna"):
             assert f"gpt-5.6-{family}" in ids
@@ -588,7 +576,6 @@ class TestFastModelVariants:
         resp = client.get("/api/tags")
         assert resp.status_code == 200
         names = {m["name"] for m in resp.json()["models"]}
-        assert "gpt-5.5" in names
         assert "gpt-5.6" in names
         for family in ("sol", "terra", "luna"):
             assert f"gpt-5.6-{family}" in names
