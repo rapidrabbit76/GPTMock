@@ -11,6 +11,7 @@ from gptmock.core.logging import log_json
 from gptmock.core.settings import Settings
 from gptmock.schemas.requests import (
     ChatCompletionRequest,
+    ImageGenerationRequest,
     ResponsesCreateRequest,
     TextCompletionRequest,
 )
@@ -20,6 +21,7 @@ from gptmock.services.chat import (
     process_text_completion,
     supplied_parameters,
 )
+from gptmock.services.images import process_image_generation
 from gptmock.services.model_registry import get_openai_models
 from gptmock.services.responses import process_responses_api
 
@@ -187,6 +189,36 @@ async def responses_create(
                 "OUT POST /v1/responses ERROR", error_response, logger=logger.debug,
             )
         return JSONResponse(error_response, status_code=e.status_code, headers=policy_headers)
+
+
+@router.post("/v1/images/generations")
+async def images_generations(
+    body: ImageGenerationRequest,
+    settings: Settings = Depends(get_settings),
+    http_client: httpx.AsyncClient = Depends(get_http_client),
+):
+    """OpenAI-compatible image generation endpoint (non-streaming only)."""
+    # Only fields the client sent are forwarded; schema defaults must not reach upstream.
+    payload = body.model_dump(exclude_unset=True)
+
+    if settings.verbose:
+        log_json("IN POST /v1/images/generations", payload, logger=logger.debug)
+
+    try:
+        response, status_code = await process_image_generation(
+            payload=payload,
+            settings=settings,
+            http_client=http_client,
+        )
+        return JSONResponse(response, status_code=status_code)
+
+    except ChatCompletionError as e:
+        error_response = e.error_data or {"error": {"message": e.message}}
+        if settings.verbose:
+            log_json(
+                "OUT POST /v1/images/generations ERROR", error_response, logger=logger.debug,
+            )
+        return JSONResponse(error_response, status_code=e.status_code)
 
 
 @router.get("/v1/models")

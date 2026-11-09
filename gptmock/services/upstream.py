@@ -1,4 +1,4 @@
-"""Shared HTTP mechanics for calling the ChatGPT Responses API."""
+"""Shared HTTP mechanics for calling the ChatGPT Codex backend."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import Any
 
 import httpx
 
-from gptmock.core.constants import CHATGPT_RESPONSES_URL
+from gptmock.core.constants import CHATGPT_IMAGES_GENERATIONS_URL, CHATGPT_RESPONSES_URL
 from gptmock.core.logging import log_json
 from gptmock.infra.limits import record_rate_limits_from_response
 
@@ -132,3 +132,44 @@ async def send_upstream_request(
             f"Upstream ChatGPT request failed: {e}",
             status_code=502,
         ) from e
+
+
+async def send_image_generation_request(
+    payload: dict[str, Any],
+    access_token: str,
+    account_id: str,
+    http_client: httpx.AsyncClient,
+    *,
+    verbose: bool = False,
+) -> httpx.Response:
+    """POST an Images API body to the Codex images endpoint and return the fully read response.
+
+    Raises
+    ------
+    UpstreamError
+        If the HTTP request itself fails (network / timeout).
+    """
+    if verbose:
+        log_json("OUTBOUND >> ChatGPT Images API payload", payload, logger=logger.debug)
+
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "chatgpt-account-id": account_id,
+    }
+
+    try:
+        response = await http_client.post(
+            CHATGPT_IMAGES_GENERATIONS_URL,
+            headers=headers,
+            json=payload,
+            timeout=600.0,
+        )
+    except httpx.RequestError as e:
+        raise UpstreamError(
+            f"Upstream ChatGPT request failed: {e}",
+            status_code=502,
+        ) from e
+    record_rate_limits_from_response(response)
+    return response
