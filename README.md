@@ -20,7 +20,7 @@ Integration and coverage badges are updated from local runs. Refresh both by run
 
 GPTMock runs a local protocol adapter in front of the ChatGPT Codex backend. OpenAI SDKs, OpenAI-compatible frontends and gateways, and Ollama-compatible clients can use the same authenticated backend without GPTMock pretending that remote models are local weights. Its model catalog is a configured snapshot, not a live availability check. Backend access can change before that catalog is updated; see [Supported Models](#supported-models) for dated results and known stale entries.
 
-GPTMock adapts client requests to the backend's supported format while preserving model identity, instruction text, strict function schemas, tool choice, reasoning controls, and service-tier requests. For GPT-5.6 Luna/Terra/Sol, GPT-6 Astra/Sol/Luna, GPT-6.1 Sol/Terra, and explicit requests for the retired GPT-5.3 Codex Spark and GPT-5.5, system-message text is carried in the Responses `instructions` field so existing chat clients can keep their system prompts. The actual response model, service tier, terminal status, and remaining upstream errors are returned to the client.
+GPTMock adapts client requests to the backend's supported format while preserving model identity, instruction text, strict function schemas, tool choice, reasoning controls, and service-tier requests. For GPT-5.6 Luna/Terra/Sol, GPT-6 Astra/Sol/Luna, GPT-6.1 Sol/Terra, GPT-6.2 Astra/Sol, and explicit requests for the retired GPT-5.3 Codex Spark and GPT-5.5, system-message text is carried in the Responses `instructions` field so existing chat clients can keep their system prompts. The actual response model, service tier, terminal status, and remaining upstream errors are returned to the client.
 
 > **Migration note:** `--reasoning-compat` now defaults to `standard`, which emits reasoning via `delta.reasoning_content` / `message.reasoning_content` instead of injecting `<think>` tags into `content`. Set `--reasoning-compat think-tags` (or `GPTMOCK_REASONING_COMPAT=think-tags`) to keep the old behavior.
 
@@ -217,7 +217,7 @@ Use OpenCode's Responses provider as the recommended configuration. OpenCode 1.x
 
 Select `gptmock/gpt-5.6-luna` and the desired variant. OpenCode automatically sends `max_output_tokens`; GPTMock's default `omit` policy keeps the request compatible while explicitly reporting that the limit was not enforced.
 
-For the GPT-6 Astra/Sol/Luna models, the GPT-6.1 Sol/Terra models, the GPT-5.6 Luna/Terra/Sol models, and explicit requests for the retired `gpt-5.3-codex-spark` and `gpt-5.5`, GPTMock's Chat endpoint moves text system messages into upstream `instructions`. OpenCode 1.17.18 completed a real Astra file-read tool call and its follow-up through both adapters. The other listed models use the same system-message adaptation; that does not establish full client/tool compatibility for every model. SDK versions may encode Responses prompts as developer input or as `instructions`.
+For the GPT-6 Astra/Sol/Luna models, the GPT-6.1 Sol/Terra models, the GPT-6.2 Astra/Sol models, the GPT-5.6 Luna/Terra/Sol models, and explicit requests for the retired `gpt-5.3-codex-spark` and `gpt-5.5`, GPTMock's Chat endpoint moves text system messages into upstream `instructions`. OpenCode 1.17.18 completed a real Astra file-read tool call and its follow-up through both adapters. The other listed models use the same system-message adaptation; that does not establish full client/tool compatibility for every model. SDK versions may encode Responses prompts as developer input or as `instructions`.
 
 To request maximum Astra reasoning, select `gpt-6-astra` with `--variant max` (provider option `reasoningEffort: "max"`). `gpt-6-astra-max` is not a model: that removed alias returns HTTP 400 with migration guidance instead of silently selecting another effort. `max` remains supported through the reasoning parameter.
 
@@ -351,7 +351,9 @@ with open("cat.png", "wb") as fp:
 
 > **Not live-verified (2026-11-09):** this endpoint has not been tested against the ChatGPT backend from GPTMock. The upstream endpoint, request shape, and model IDs come from the CLIProxyAPI 8.0.50 source, and GPTMock's tests use a simulated upstream. Account availability, accepted options, and response fields may differ.
 
-Known image model IDs (from CLIProxyAPI 8.0.50): `gpt-image-1.5`, `gpt-image-2`, `gpt-image-2.5`, `gpt-image-2.5-flare`, `gpt-image-2.5-sunburst`, `gpt-image-2.6`, `gpt-image-2.6-flare`, `gpt-image-2.6-sunburst`.
+The local CLIProxy instance lists `gpt-image-2.6`, `gpt-image-2.6-flare`, and `gpt-image-2.6-sunburst` on 2026-11-18. GPTMock advertises these three IDs in `/v1/models` with `capabilities: ["image_generation"]` and `supported_endpoints: ["/v1/images/generations"]`. They have no reasoning metadata or effort variants. This is model discovery and proxy coverage, not a live image-generation check against the ChatGPT backend.
+
+Other known image model IDs from CLIProxyAPI 8.0.50 are `gpt-image-1.5`, `gpt-image-2`, `gpt-image-2.5`, `gpt-image-2.5-flare`, and `gpt-image-2.5-sunburst`. These IDs can still be requested directly without being advertised.
 
 ```bash
 curl http://127.0.0.1:8000/v1/images/generations \
@@ -389,7 +391,7 @@ with open("cat.png", "wb") as fp:
 - Upstream success responses are returned unchanged. Upstream errors keep their HTTP status and JSON body; a non-JSON error body is wrapped as `{"error": {"message": "..."}}`. Network failures return HTTP 502.
 - A missing `model` or `prompt` returns HTTP 422. An empty or whitespace-only `model` or `prompt` returns HTTP 400 before authentication.
 - Streaming is not supported yet: `stream: true` returns HTTP 400. `/v1/images/edits` is not supported yet.
-- Image models are intentionally not listed in `/v1/models` or `/api/tags`, because chat clients pick their models from those lists. Pass the image model ID directly.
+- Image models appear only in OpenAI discovery. `/api/tags` remains text-only, and `/api/show` returns HTTP 404 for image IDs because Ollama chat and generate cannot produce images. Clients using `/v1/models` must filter by `capabilities` or `supported_endpoints` when selecting an image model.
 - When `GPTMOCK_API_KEY` is set, this route requires the same bearer token as the other `/v1/` routes.
 
 ### Local Image Inspection (`view_image`)
@@ -461,6 +463,14 @@ Sol and Luna use the existing Responses-backed adapters for OpenAI Chat/Completi
 
 **GPT-6.1 Sol and Terra (added 2026-11-09):** `gpt-6.1-sol` and `gpt-6.1-terra` are advertised by `/v1/models` and `/api/tags` and route to their exact upstream IDs. Sol accepts `low`, `medium` (default), `high`, `xhigh`, and `max`; Terra also accepts `none`. These ranges follow the official [GPT-6.1 Sol](https://developers.openai.com/api/docs/models/gpt-6.1-sol) and [GPT-6.1 Terra](https://developers.openai.com/api/docs/models/gpt-6.1-terra) documentation. Their `*-fast` aliases request `service_tier="priority"` without appearing in discovery, and text system messages are carried into `instructions` like the other GPT-6 models. Both IDs are also listed in the Codex model registry shipped with CLIProxyAPI 8.0.50 (Plus, Pro, and Team tiers; Terra also on Free). A direct GPTMock probe was not possible on 2026-11-09 because the local login had expired, so account availability, live tool calls, and system-role acceptance have not been verified against the ChatGPT backend.
 
+**GPT-6.2 Astra and Sol**
+
+Added on 2026-11-18, `gpt-6.2-astra` and `gpt-6.2-sol` appear in both `/v1/models` and `/api/tags`. Both route to their exact upstream IDs and accept `low`, `medium`, `high`, `xhigh`, and `max`. `none` and `minimal` return HTTP 400 before authentication. Effort-suffixed IDs are available when `--expose-reasoning-models` is enabled. Their request-only `*-fast` aliases add `service_tier="priority"` without changing the model or appearing in discovery.
+
+Text system messages use the same `instructions` adapter as the other GPT-6 models. Tests cover all five text-generation routes, streaming, and the actual response model and tier. GPTMock does not add unverified `gpt-6.2-terra`, Luna, Pro, or bare `gpt-6.2` aliases.
+
+Sources are the local CLIProxy `/v1/models` response on 2026-11-18, CLIProxy's [Codex registry at a5e8f69](https://github.com/router-for-me/CLIProxyAPI/blob/a5e8f69e56309e1ef6d6872e667da81fdfbce2ce/internal/registry/models/models.json), and OpenAI's [GPT-6.2 Astra](https://developers.openai.com/api/docs/models/gpt-6.2-astra) and [GPT-6.2 Sol](https://developers.openai.com/api/docs/models/gpt-6.2-sol) documentation. These sources establish the IDs and configured reasoning range, not live availability for the GPTMock account. No authenticated backend generation was run for this update.
+
 **Removed GPT-5.4 models:** `gpt-5.4` and `gpt-5.4-mini` returned `The '…' model is not supported when using Codex with a ChatGPT account.` in the 2026-09-13 check. They and their effort variants are no longer advertised by `/v1/models` or `/api/tags`; their fast aliases are no longer registered. `/api/show` returns HTTP 404 for these removed entries. This is a dated backend/account observation, not a claim about public OpenAI API availability.
 
 **Removed GPT-5.5 and GPT-5.3 Codex Spark (2026-11-09):** `gpt-5.5`, `gpt-5.3-codex-spark`, and their effort variants are no longer advertised by `/v1/models` or `/api/tags`, and the `gpt-5.5-fast` alias is no longer registered. `/api/show` returns HTTP 404 for them. Neither ID appears in any Codex tier (Free, Plus, Pro, Team) of the model registry shipped with CLIProxyAPI 8.0.50. This removal is based on that registry, not on a direct GPTMock probe, because the local login had expired when the change was made. Explicit requests are still forwarded unchanged and keep the system-message adaptation, so clients that name either model directly keep working for as long as the backend accepts it.
@@ -475,7 +485,7 @@ Fast aliases inherit their base model's availability. On 2026-09-13, `gpt-5.4-fa
 
 > **GPT-6 Astra:** `gpt-6-astra` connects directly to that exact upstream model. The [official model documentation](https://developers.openai.com/api/docs/models/gpt-6-astra) lists `low`, `medium`, `high`, `xhigh`, and `max`; direct ChatGPT Codex probes on 2026-09-05 completed at all five efforts and echoed the requested model and effort. That backend rejected `none`, `minimal`, `ultra`, `gpt-6-astra-pro`, and `reasoning.mode="pro"`. Those options are not advertised as supported. OpenAI Chat Completions and Ollama clients use GPTMock's existing Responses-backed adapter, including tool calls. See [Astra validation](docs/astra-validation.md) for the tested interfaces and limitations.
 
-> **System-message compatibility:** for GPT-5.6 Luna/Terra/Sol, GPT-6 Astra/Sol/Luna, GPT-6.1 Sol/Terra, and explicit requests for the retired GPT-5.3 Codex Spark and GPT-5.5, GPTMock carries text system messages into `instructions`, after any existing instructions and in message order. Developer/user messages and tool results remain in `input`. This applies to OpenAI Chat, Responses, Ollama chat, and Ollama generate's `system` field, including existing fast aliases and streaming. GPT-6 Sol/Luna and GPT-6.1 Sol/Terra use this as a compatibility policy; their backend requirement for it has not been verified. Existing clients can keep their system prompts. Other models and unsupported non-text system content are passed through unchanged.
+> **System-message compatibility:** for GPT-5.6 Luna/Terra/Sol, GPT-6 Astra/Sol/Luna, GPT-6.1 Sol/Terra, GPT-6.2 Astra/Sol, and explicit requests for the retired GPT-5.3 Codex Spark and GPT-5.5, GPTMock carries text system messages into `instructions`, after any existing instructions and in message order. Developer/user messages and tool results remain in `input`. This applies to OpenAI Chat, Responses, Ollama chat, and Ollama generate's `system` field, including existing fast aliases and streaming. GPT-6 Sol/Luna, GPT-6.1 Sol/Terra, and GPT-6.2 Astra/Sol use this as a compatibility policy; their backend requirement for it has not been verified. Existing clients can keep their system prompts. Other models and unsupported non-text system content are passed through unchanged.
 
 > **Upstream availability note:** model availability can change independently of GPTMock releases. The older model list reflects direct probes made on 2026-08-26, GPT-5.6 was rechecked on 2026-09-03, and Astra was verified on 2026-09-05. `gpt-5`, `gpt-5.1`, `gpt-5.2`, `gpt-5-codex`, `gpt-5.1-codex`, `gpt-5.1-codex-mini`, `gpt-5.1-codex-max`, `gpt-5.2-codex`, and `gpt-5.3-codex` were rejected and are therefore not advertised.
 
@@ -489,7 +499,7 @@ Always supply a non-empty model name. Generation requests without `model` return
 
 | Input or event | GPTMock behavior |
 |----------------|------------------|
-| `system` and `developer` messages | For GPT-5.6 Luna/Terra/Sol, GPT-6 Astra/Sol/Luna, GPT-6.1 Sol/Terra, and explicit retired Spark/GPT-5.5 requests, system text is moved into `instructions` and developer messages remain in `input`; other models retain the supplied roles |
+| `system` and `developer` messages | For GPT-5.6 Luna/Terra/Sol, GPT-6 Astra/Sol/Luna, GPT-6.1 Sol/Terra, GPT-6.2 Astra/Sol, and explicit retired Spark/GPT-5.5 requests, system text is moved into `instructions` and developer messages remain in `input`; other models retain the supplied roles |
 | Function tools with `strict: true` | Strict schema flag and parameters are preserved |
 | `tool_choice: "required"` | Forwarded as required; never weakened to `auto` |
 | Rejected tools or model options | Upstream error is returned; GPTMock does not remove tools and retry |
