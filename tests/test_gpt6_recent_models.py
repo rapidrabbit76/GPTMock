@@ -22,6 +22,8 @@ from gptmock.services.upstream import _adapt_system_messages
 EFFORTS: Final = {
     "gpt-6.1-sol": ("low", "medium", "high", "xhigh", "max"),
     "gpt-6.1-terra": ("none", "low", "medium", "high", "xhigh", "max"),
+    "gpt-6.2-astra": ("low", "medium", "high", "xhigh", "max"),
+    "gpt-6.2-sol": ("low", "medium", "high", "xhigh", "max"),
 }
 MODELS: Final = tuple(EFFORTS)
 ROUTES: Final = ("/v1/chat/completions", "/v1/completions", "/v1/responses", "/api/chat", "/api/generate")
@@ -29,7 +31,7 @@ ROUTES: Final = ("/v1/chat/completions", "/v1/completions", "/v1/responses", "/a
 
 @pytest.mark.parametrize("model", MODELS)
 @pytest.mark.parametrize("expose_reasoning", [False, True])
-def test_gpt61_discovery_advertises_concrete_models(model: str, expose_reasoning: bool) -> None:
+def test_recent_gpt6_discovery_advertises_concrete_models(model: str, expose_reasoning: bool) -> None:
     with TestClient(create_app(Settings(expose_reasoning_models=expose_reasoning))) as client:
         models = {item["id"]: item for item in client.get("/v1/models").json()["data"]}
         tags = {item["name"]: item for item in client.get("/api/tags").json()["models"]}
@@ -54,9 +56,9 @@ def test_gpt61_discovery_advertises_concrete_models(model: str, expose_reasoning
 
 @pytest.mark.parametrize("model", MODELS)
 @pytest.mark.parametrize("fast", [False, True])
-def test_gpt61_aliases_preserve_model_and_reasoning(model: str, fast: bool) -> None:
+def test_recent_gpt6_aliases_preserve_model_and_reasoning(model: str, fast: bool) -> None:
     requested = model + ("-fast" if fast else "")
-    for alias in (requested, requested.replace("gpt-6.1", "gpt6.1"), f"{requested}-latest"):
+    for alias in (requested, requested.replace("gpt-6.", "gpt6."), f"{requested}-latest"):
         assert normalize_model_name(alias) == requested
     for effort in EFFORTS[model]:
         for separator in ("-", "_", ":"):
@@ -71,15 +73,17 @@ def test_gpt61_aliases_preserve_model_and_reasoning(model: str, fast: bool) -> N
 
 @pytest.mark.parametrize(("model", "effort"), [
     ("gpt-6.1-sol", "none"), ("gpt-6.1-sol", "minimal"), ("gpt-6.1-terra", "minimal"), ("gpt-6.1-terra", "ultra"),
+    ("gpt-6.2-astra", "none"), ("gpt-6.2-astra", "minimal"), ("gpt-6.2-astra", "ultra"),
+    ("gpt-6.2-sol", "none"), ("gpt-6.2-sol", "minimal"), ("gpt-6.2-sol", "ultra"),
 ])
-def test_gpt61_unsupported_efforts_are_rejected(model: str, effort: str) -> None:
+def test_recent_gpt6_unsupported_efforts_are_rejected(model: str, effort: str) -> None:
     assert f"{model}-{effort}" not in get_model_list(expose_reasoning=True)
     with pytest.raises(ValueError, match="Unsupported reasoning effort"):
         build_reasoning_param(effort, allowed_efforts=allowed_efforts_for_model(model))
 
 
 @pytest.mark.parametrize("model", MODELS)
-def test_gpt61_system_messages_move_into_instructions(model: str) -> None:
+def test_recent_gpt6_system_messages_move_into_instructions(model: str) -> None:
     payload = {"model": model, "input": [
         {"type": "message", "role": "system", "content": "be brief"},
         {"type": "message", "role": "user", "content": "hello"},
@@ -90,7 +94,7 @@ def test_gpt61_system_messages_move_into_instructions(model: str) -> None:
 
 
 @pytest.mark.parametrize("model", MODELS)
-def test_gpt61_routes_preserve_model_and_effort(monkeypatch: pytest.MonkeyPatch, model: str) -> None:
+def test_recent_gpt6_routes_preserve_model_and_effort(monkeypatch: pytest.MonkeyPatch, model: str) -> None:
     captured = []
     effort = "max"
 
@@ -100,7 +104,7 @@ def test_gpt61_routes_preserve_model_and_effort(monkeypatch: pytest.MonkeyPatch,
     def fake_transport(request: httpx.Request) -> httpx.Response:
         captured.append(json.loads(request.content))
         event = {"type": "response.completed", "response": {
-            "id": "resp_gpt61", "model": model, "status": "completed", "service_tier": "default",
+            "id": "resp_gpt6", "model": model, "status": "completed", "service_tier": "default",
             "output": [{"type": "message", "role": "assistant", "status": "completed",
                         "content": [{"type": "output_text", "text": "OK", "annotations": []}]}],
         }}
@@ -126,7 +130,35 @@ def test_gpt61_routes_preserve_model_and_effort(monkeypatch: pytest.MonkeyPatch,
                 }
                 response = client.post(route, json=payload)
                 assert response.status_code == 200
+                assert response.json()["model"] == model
+                assert response.json()["service_tier"] == "default"
                 assert captured[-1]["model"] == model
                 assert captured[-1]["reasoning"]["effort"] == effort
                 assert (captured[-1].get("service_tier") == "priority") is bool(suffix)
     assert len(captured) == len(ROUTES) * 2
+
+
+@pytest.mark.parametrize("model", ["gpt-6.2-astra", "gpt-6.2-sol"])
+@pytest.mark.parametrize("effort", ["none", "minimal"])
+@pytest.mark.parametrize("use_alias", [False, True])
+def test_gpt62_rejects_unsupported_efforts_before_authentication(
+    monkeypatch: pytest.MonkeyPatch, model: str, effort: str, use_alias: bool,
+) -> None:
+    async def unexpected_auth() -> tuple[str, str]:
+        pytest.fail("Unsupported reasoning effort must fail before authentication")
+
+    for module in ("gptmock.services.chat", "gptmock.services.responses"):
+        monkeypatch.setattr(importlib.import_module(module), "get_effective_chatgpt_auth", unexpected_auth)
+    app = importlib.import_module("gptmock.app").create_app(Settings(api_key=None, debug_model=None))
+    with TestClient(app) as client:
+        for route in ROUTES:
+            payload = {
+                "model": f"{model}-fast-{effort}" if use_alias else model,
+                "messages": [{"role": "user", "content": "hello"}], "input": "hello", "prompt": "hello",
+            }
+            if not use_alias:
+                payload["reasoning_effort"] = effort
+                payload["reasoning"] = {"effort": effort}
+            response = client.post(route, json=payload)
+            assert response.status_code == 400
+            assert "Unsupported reasoning effort" in response.text
