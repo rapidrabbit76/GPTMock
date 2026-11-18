@@ -18,10 +18,6 @@ from gptmock.core.settings import Settings
 from gptmock.services import images
 
 ROUTE = "/v1/images/generations"
-IMAGE_MODELS = (
-    "gpt-image-1.5", "gpt-image-2", "gpt-image-2.5", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst",
-    "gpt-image-2.6", "gpt-image-2.6-flare", "gpt-image-2.6-sunburst",
-)
 IMAGE_26_MODELS = ("gpt-image-2.6", "gpt-image-2.6-flare", "gpt-image-2.6-sunburst")
 PNG_B64 = base64.b64encode(b"\x89PNG\r\n\x1a\nsimulated").decode()
 UPSTREAM_RESULT: dict[str, Any] = {

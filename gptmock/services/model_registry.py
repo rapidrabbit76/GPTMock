@@ -217,7 +217,7 @@ def apply_model_overrides(payload: dict[str, Any], overrides: dict[str, Any]) ->
 def get_model_list(
     expose_reasoning: bool = False,
 ) -> list[str]:
-    """Return unified model list for both OpenAI and Ollama formats."""
+    """Return text model IDs shared by OpenAI and Ollama discovery."""
     model_ids: list[str] = []
     for base, efforts in MODEL_GROUPS:
         model_ids.append(base)
