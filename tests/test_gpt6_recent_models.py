@@ -40,7 +40,7 @@ def test_recent_gpt6_discovery_advertises_concrete_models(model: str, expose_rea
         }
         assert tags[model]["remote_model"] == model
         assert tags[model]["details"]["format"] == "remote"
-        assert set(models) == set(tags)
+        assert {mid for mid, entry in models.items() if "reasoning" in entry} == set(tags)
         assert not any(name.startswith(f"{model}-fast") for name in models)
         for suffix in ("", "-fast"):
             response = client.post("/api/show", json={"model": model + suffix})

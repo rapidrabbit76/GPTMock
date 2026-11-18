@@ -22,6 +22,7 @@ IMAGE_MODELS = (
     "gpt-image-1.5", "gpt-image-2", "gpt-image-2.5", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst",
     "gpt-image-2.6", "gpt-image-2.6-flare", "gpt-image-2.6-sunburst",
 )
+IMAGE_26_MODELS = ("gpt-image-2.6", "gpt-image-2.6-flare", "gpt-image-2.6-sunburst")
 PNG_B64 = base64.b64encode(b"\x89PNG\r\n\x1a\nsimulated").decode()
 UPSTREAM_RESULT: dict[str, Any] = {
     "created": 1794182400,
@@ -99,16 +100,17 @@ def test_forwards_body_to_codex_images_endpoint_and_returns_upstream_json(
     assert json.loads(sent.content) == {**body, "model": "gpt-image-2.6"}
 
 
-def test_openai_sdk_images_generate_round_trip(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("model", IMAGE_26_MODELS)
+def test_openai_sdk_images_generate_round_trip(monkeypatch: pytest.MonkeyPatch, model: str) -> None:
     upstream = FakeUpstream()
     with upstream.client(monkeypatch) as test_client:
         sdk = OpenAI(base_url="http://testserver/v1", api_key="unused", http_client=test_client, max_retries=0)
-        result = sdk.images.generate(model="gpt-image-2.6", prompt="A red circle on white", size="1024x1024")
+        result = sdk.images.generate(model=model, prompt="A red circle on white", size="1024x1024")
 
     assert result.data is not None
     assert base64.b64decode(result.data[0].b64_json or "") == base64.b64decode(PNG_B64)
     assert json.loads(upstream.requests[0].content) == {
-        "model": "gpt-image-2.6", "prompt": "A red circle on white", "size": "1024x1024",
+        "model": model, "prompt": "A red circle on white", "size": "1024x1024",
     }
 
 
@@ -253,15 +255,28 @@ def test_proxy_api_key_protects_images_route(monkeypatch: pytest.MonkeyPatch) ->
 
 
 @pytest.mark.parametrize("expose_reasoning", [False, True])
-def test_image_models_are_absent_from_discovery(expose_reasoning: bool) -> None:
+def test_image_family_is_discoverable_only_in_openai_models(expose_reasoning: bool) -> None:
     settings = Settings(api_key=None, expose_reasoning_models=expose_reasoning)
     with TestClient(create_app(settings)) as client:
         models = client.get("/v1/models")
         tags = client.get("/api/tags")
 
     assert models.status_code == tags.status_code == 200
-    model_ids = {item["id"] for item in models.json()["data"]}
+    entries = {item["id"]: item for item in models.json()["data"]}
+    model_ids = set(entries)
     tag_ids = {item["name"] for item in tags.json()["models"]}
-    assert model_ids == tag_ids
-    assert not any("image" in name for name in model_ids)
-    assert model_ids.isdisjoint(IMAGE_MODELS)
+    assert model_ids - tag_ids == set(IMAGE_26_MODELS)
+    assert tag_ids < model_ids
+    for model in IMAGE_26_MODELS:
+        assert entries[model]["object"] == "model"
+        assert entries[model]["owned_by"] == "openai"
+        assert entries[model]["capabilities"] == ["image_generation"]
+        assert entries[model]["supported_endpoints"] == ["/v1/images/generations"]
+        assert "reasoning" not in entries[model]
+        assert not any(name.startswith(f"{model}-") and name not in IMAGE_26_MODELS for name in model_ids)
+
+
+@pytest.mark.parametrize("model", IMAGE_26_MODELS)
+def test_image_model_is_not_an_ollama_chat_model(model: str) -> None:
+    with TestClient(create_app(Settings(api_key=None))) as client:
+        assert client.post("/api/show", json={"model": model}).status_code == 404

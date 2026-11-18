@@ -36,7 +36,7 @@ def test_retired_models_are_absent_from_discovery(expose_reasoning: bool) -> Non
         assert models.status_code == tags.status_code == 200
         model_ids = {item["id"] for item in models.json()["data"]}
         tag_ids = {item["name"] for item in tags.json()["models"]}
-        assert model_ids == tag_ids
+        assert {item["id"] for item in models.json()["data"] if "reasoning" in item} == tag_ids
         assert "gpt-5.6-sol" in model_ids
         assert not any(name.startswith(("gpt-5.4", "gpt-5.5", "gpt-5.3")) for name in model_ids)
         for model in RETIRED_MODELS:

@@ -37,6 +37,10 @@ SYNTHETIC_MODEL_GROUPS: list[tuple[str, list[str]]] = [
     ("gpt-6.2-sol-fast", ["max", "xhigh", "high", "medium", "low"]),
 ]
 
+IMAGE_MODEL_IDS: tuple[str, ...] = (
+    "gpt-image-2.6", "gpt-image-2.6-flare", "gpt-image-2.6-sunburst",
+)
+
 _BASE_MODEL_IDS: frozenset[str] = frozenset(
     base for base, _ in (*MODEL_GROUPS, *SYNTHETIC_MODEL_GROUPS)
 )
@@ -268,7 +272,7 @@ def get_openai_models(
 ) -> list[dict[str, Any]]:
     """Return OpenAI-formatted model list."""
     model_ids = get_model_list(expose_reasoning)
-    return [
+    text_models = [
         {
             "id": mid,
             "object": "model",
@@ -277,6 +281,17 @@ def get_openai_models(
         }
         for mid in model_ids
     ]
+    image_models = [
+        {
+            "id": mid,
+            "object": "model",
+            "owned_by": "openai",
+            "capabilities": ["image_generation"],
+            "supported_endpoints": ["/v1/images/generations"],
+        }
+        for mid in IMAGE_MODEL_IDS
+    ]
+    return [*text_models, *image_models]
 
 
 def get_ollama_models(expose_reasoning: bool = False) -> list[dict[str, Any]]:
