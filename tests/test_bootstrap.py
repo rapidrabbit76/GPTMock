@@ -86,6 +86,9 @@ class TestAppBootstrap:
         for m in data["data"]:
             assert "id" in m, f"model entry missing 'id': {m}"
             assert m["object"] == "model"
+            if "image_generation" in m.get("capabilities", []):
+                assert "reasoning" not in m
+                continue
             assert "reasoning" in m, f"model entry missing 'reasoning': {m}"
             r = m["reasoning"]
             assert isinstance(r.get("supported_efforts"), list)
@@ -355,6 +358,9 @@ class TestModelRegistry:
             assert "id" in m
             assert m["object"] == "model"
             assert "owned_by" in m
+            if "image_generation" in m.get("capabilities", []):
+                assert "reasoning" not in m
+                continue
             assert "reasoning" in m
             r = m["reasoning"]
             assert isinstance(r["supported_efforts"], list)
