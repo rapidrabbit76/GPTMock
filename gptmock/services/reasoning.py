@@ -44,7 +44,10 @@ def allowed_efforts_for_model(model: str | None) -> set[str]:
     if not raw:
         return DEFAULT_REASONING_EFFORTS
     normalized = strip_effort_suffix(raw)
-    if normalized in {"gpt-6-astra", "gpt-6-astra-fast", "gpt-6.1-sol", "gpt-6.1-sol-fast"}:
+    if normalized in {
+        "gpt-6-astra", "gpt-6-astra-fast", "gpt-6.1-sol", "gpt-6.1-sol-fast",
+        "gpt-6.2-astra", "gpt-6.2-astra-fast", "gpt-6.2-sol", "gpt-6.2-sol-fast",
+    }:
         return {"low", "medium", "high", "xhigh", "max"}
     if normalized in {
         "gpt-6-sol", "gpt-6-sol-fast", "gpt-6-luna", "gpt-6-luna-fast", "gpt-6.1-terra", "gpt-6.1-terra-fast",
